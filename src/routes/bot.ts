@@ -45,7 +45,7 @@ type BotSession = {
 
 const I18N = {
   ru: {
-    greet: "Готово. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
+    greet: "VOROBEY: Check готов. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
     unknown: "Не понял сообщение. Выберите действие кнопкой меню.",
     mainMenu: "Главное меню",
     walletsTitle: "Мои кошельки",
@@ -90,10 +90,15 @@ const I18N = {
     btnTest: "Тестовое уведомление",
     askBtc: "Введите порог BTC (например, 0.001).",
     askEth: "Введите порог ETH (например, 0.01).",
-    askUsdt: "Введите порог USDT (например, 50)."
+    askUsdt: "Введите порог USDT (например, 50).",
+    stateOn: "включено",
+    stateOff: "выключено",
+    usdState: "Показывать оценку USD: {state}",
+    chainState: "Блокчейн-уведомления: {state}",
+    serviceState: "Сервисные уведомления: {state}"
   },
   en: {
-    greet: "Ready. Use the buttons below to manage wallets, contacts, and settings.",
+    greet: "VOROBEY: Check is ready. Use the buttons below to manage wallets, contacts, and settings.",
     unknown: "I did not understand. Please choose an action from the menu.",
     mainMenu: "Main menu",
     walletsTitle: "My wallets",
@@ -138,7 +143,12 @@ const I18N = {
     btnTest: "Test notification",
     askBtc: "Enter BTC threshold (example: 0.001).",
     askEth: "Enter ETH threshold (example: 0.01).",
-    askUsdt: "Enter USDT threshold (example: 50)."
+    askUsdt: "Enter USDT threshold (example: 50).",
+    stateOn: "ON",
+    stateOff: "OFF",
+    usdState: "Show USD estimate: {state}",
+    chainState: "Blockchain notifications: {state}",
+    serviceState: "Service notifications: {state}"
   }
 } as const;
 
@@ -150,6 +160,15 @@ function t(language: Language, key: keyof (typeof I18N)["ru"]): string {
 
 function isBtn(input: string, key: keyof (typeof I18N)["ru"]): boolean {
   return input === I18N.ru[key] || input === I18N.en[key];
+}
+
+function withState(
+  language: Language,
+  key: "usdState" | "chainState" | "serviceState",
+  isEnabled: boolean
+): string {
+  const state = isEnabled ? t(language, "stateOn") : t(language, "stateOff");
+  return t(language, key).replace("{state}", state);
 }
 
 function maskAddress(value: string): string {
@@ -485,7 +504,12 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnToggleUsd")) {
     settings = await updateSettings(c.env, userId, { showUsdEstimate: !settings.showUsdEstimate });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(settings.language, "settingsSaved"), settingsKeyboard(settings.language));
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      withState(settings.language, "usdState", settings.showUsdEstimate),
+      settingsKeyboard(settings.language)
+    );
     return c.json({ ok: true });
   }
 
@@ -493,7 +517,12 @@ bot.post("/telegram", async (c) => {
     settings = await updateSettings(c.env, userId, {
       blockchainNotificationsEnabled: !settings.blockchainNotificationsEnabled
     });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(settings.language, "settingsSaved"), settingsKeyboard(settings.language));
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      withState(settings.language, "chainState", settings.blockchainNotificationsEnabled),
+      settingsKeyboard(settings.language)
+    );
     return c.json({ ok: true });
   }
 
@@ -501,7 +530,12 @@ bot.post("/telegram", async (c) => {
     settings = await updateSettings(c.env, userId, {
       serviceNotificationsEnabled: !settings.serviceNotificationsEnabled
     });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(settings.language, "settingsSaved"), settingsKeyboard(settings.language));
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      withState(settings.language, "serviceState", settings.serviceNotificationsEnabled),
+      settingsKeyboard(settings.language)
+    );
     return c.json({ ok: true });
   }
 
