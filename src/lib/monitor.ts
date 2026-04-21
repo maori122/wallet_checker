@@ -11,7 +11,7 @@ const ETHERSCAN_BASE = "https://api.etherscan.io/api";
 const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 
 type Asset = "BTC" | "ETH" | "USDT";
-type Network = "btc" | "eth";
+type Network = "btc" | "eth" | "bsc";
 
 type IncomingEvent = {
   txid: string;
@@ -250,7 +250,7 @@ function normalizeSenderAddress(network: Network, sender: string | null): string
     return null;
   }
 
-  if (network === "eth") {
+  if (network === "eth" || network === "bsc") {
     if (!isAddress(sender)) {
       return null;
     }
@@ -279,12 +279,16 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
     try {
       if (wallet.network === "btc") {
         events = await fetchBtcIncoming(wallet.address);
-      } else {
+      } else if (wallet.network === "eth") {
         const [ethEvents, usdtEvents] = await Promise.all([
           fetchEthIncoming(wallet.address, etherscanKey),
           fetchUsdtIncoming(wallet.address, etherscanKey)
         ]);
         events = [...ethEvents, ...usdtEvents];
+      } else {
+        // BSC wallets are accepted for storage and UI, but monitoring adapters
+        // for BSC scan providers are not wired in this MVP iteration yet.
+        events = [];
       }
     } catch {
       continue;

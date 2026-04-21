@@ -3,9 +3,9 @@ import { getAddress, isAddress } from "viem";
 import { z } from "zod";
 import { MAX_LABEL_LENGTH } from "./constants";
 
-export const walletNetworkSchema = z.enum(["btc", "eth"]);
+export const walletNetworkSchema = z.enum(["btc", "eth", "bsc"]);
 
-export function normalizeAddress(network: "btc" | "eth", address: string): string {
+export function normalizeAddress(network: "btc" | "eth" | "bsc", address: string): string {
   const trimmed = address.trim();
   if (network === "btc") {
     const valid = validateBitcoinAddress(trimmed);

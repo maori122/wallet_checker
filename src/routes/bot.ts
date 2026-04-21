@@ -213,7 +213,7 @@ function sectionKeyboard(language: Language): ReplyMarkup {
 
 function networkKeyboard(language: Language): ReplyMarkup {
   return {
-    keyboard: [["BTC", "ETH"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
+    keyboard: [["BTC", "ETH", "BSC"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
     resize_keyboard: true
   };
 }
@@ -448,13 +448,13 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "wallet:add:network" && (text === "BTC" || text === "ETH")) {
+  if (session?.flow === "wallet:add:network" && (text === "BTC" || text === "ETH" || text === "BSC")) {
     await setBotSession(c.env, userId, { flow: "wallet:add:address", payload: { network: text.toLowerCase() } });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletAddress"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "contact:add:network" && (text === "BTC" || text === "ETH")) {
+  if (session?.flow === "contact:add:network" && (text === "BTC" || text === "ETH" || text === "BSC")) {
     await setBotSession(c.env, userId, { flow: "contact:add:address", payload: { network: text.toLowerCase() } });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language));
     return c.json({ ok: true });

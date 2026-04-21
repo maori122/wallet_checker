@@ -1,9 +1,6 @@
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  created_at TEXT NOT NULL
-);
+PRAGMA foreign_keys=OFF;
 
-CREATE TABLE IF NOT EXISTS wallets (
+CREATE TABLE wallets_new (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc')),
@@ -13,10 +10,16 @@ CREATE TABLE IF NOT EXISTS wallets (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+INSERT INTO wallets_new (id, user_id, network, address_ciphertext, address_hash, created_at)
+SELECT id, user_id, network, address_ciphertext, address_hash, created_at FROM wallets;
+
+DROP TABLE wallets;
+ALTER TABLE wallets_new RENAME TO wallets;
+
 CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_unique_address_per_user ON wallets(user_id, network, address_hash);
 
-CREATE TABLE IF NOT EXISTS contacts (
+CREATE TABLE contacts_new (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
   network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc')),
@@ -28,28 +31,31 @@ CREATE TABLE IF NOT EXISTS contacts (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+INSERT INTO contacts_new (
+  id,
+  user_id,
+  network,
+  address_ciphertext,
+  address_hash,
+  label_ciphertext,
+  created_at,
+  updated_at
+)
+SELECT
+  id,
+  user_id,
+  network,
+  address_ciphertext,
+  address_hash,
+  label_ciphertext,
+  created_at,
+  updated_at
+FROM contacts;
+
+DROP TABLE contacts;
+ALTER TABLE contacts_new RENAME TO contacts;
+
 CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_unique_address_per_user ON contacts(user_id, network, address_hash);
 
-CREATE TABLE IF NOT EXISTS user_settings (
-  user_id TEXT PRIMARY KEY,
-  language TEXT NOT NULL CHECK (language IN ('ru', 'en')),
-  btc_threshold TEXT NOT NULL,
-  eth_threshold TEXT NOT NULL,
-  usdt_threshold TEXT NOT NULL,
-  show_usd_estimate INTEGER NOT NULL DEFAULT 1,
-  blockchain_notifications_enabled INTEGER NOT NULL DEFAULT 1,
-  service_notifications_enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS notification_dedup (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  dedup_key TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  UNIQUE (user_id, dedup_key),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
+PRAGMA foreign_keys=ON;

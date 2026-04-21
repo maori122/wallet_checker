@@ -5,14 +5,14 @@ import type { Env, Language } from "../types/env";
 
 export type WalletItem = {
   id: string;
-  network: "btc" | "eth";
+  network: "btc" | "eth" | "bsc";
   address: string;
   createdAt: string;
 };
 
 export type ContactItem = {
   id: string;
-  network: "btc" | "eth";
+  network: "btc" | "eth" | "bsc";
   address: string;
   label: string;
   createdAt: string;
@@ -36,7 +36,7 @@ export type StoredBotSession = {
 export type MonitoredWallet = {
   id: string;
   userId: string;
-  network: "btc" | "eth";
+  network: "btc" | "eth" | "bsc";
   address: string;
 };
 
@@ -86,7 +86,7 @@ export async function listWallets(env: Env, userId: string): Promise<WalletItem[
     "SELECT id, network, address_ciphertext, created_at FROM wallets WHERE user_id = ? ORDER BY created_at DESC"
   )
     .bind(userId)
-    .all<{ id: string; network: "btc" | "eth"; address_ciphertext: string; created_at: string }>();
+    .all<{ id: string; network: "btc" | "eth" | "bsc"; address_ciphertext: string; created_at: string }>();
 
   return Promise.all(
     result.results.map(async (row) => ({
@@ -101,7 +101,7 @@ export async function listWallets(env: Env, userId: string): Promise<WalletItem[
 export async function createWallet(
   env: Env,
   userId: string,
-  payload: { network: "btc" | "eth"; address: string }
+  payload: { network: "btc" | "eth" | "bsc"; address: string }
 ): Promise<void> {
   await ensureUserRow(env, userId);
   const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
@@ -137,7 +137,7 @@ export async function listContacts(env: Env, userId: string): Promise<ContactIte
     .bind(userId)
     .all<{
       id: string;
-      network: "btc" | "eth";
+      network: "btc" | "eth" | "bsc";
       address_ciphertext: string;
       label_ciphertext: string;
       created_at: string;
@@ -157,7 +157,7 @@ export async function listContacts(env: Env, userId: string): Promise<ContactIte
 export async function createContact(
   env: Env,
   userId: string,
-  payload: { network: "btc" | "eth"; address: string; label: string }
+  payload: { network: "btc" | "eth" | "bsc"; address: string; label: string }
 ): Promise<void> {
   await ensureUserRow(env, userId);
   const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
@@ -305,7 +305,7 @@ export async function getUsageSummary(env: Env, userId: string): Promise<UsageSu
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {
   const result = await env.DB.prepare(
     "SELECT id, user_id, network, address_ciphertext FROM wallets ORDER BY created_at DESC"
-  ).all<{ id: string; user_id: string; network: "btc" | "eth"; address_ciphertext: string }>();
+  ).all<{ id: string; user_id: string; network: "btc" | "eth" | "bsc"; address_ciphertext: string }>();
 
   return Promise.all(
     result.results.map(async (row) => ({
@@ -320,7 +320,7 @@ export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWalle
 export async function resolveContactLabel(
   env: Env,
   userId: string,
-  network: "btc" | "eth",
+  network: "btc" | "eth" | "bsc",
   senderAddress: string
 ): Promise<string | null> {
   const hashed = await addressHash(senderAddress.toLowerCase());

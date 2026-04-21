@@ -395,6 +395,7 @@ function pageHtml(): string {
             <select id="wallet-network" aria-label="Wallet network">
               <option value="btc">BTC</option>
               <option value="eth">ETH</option>
+              <option value="bsc">BSC (BEP-20)</option>
             </select>
           </div>
           <div class="form-group">
@@ -420,6 +421,7 @@ function pageHtml(): string {
             <select id="contact-network" aria-label="Contact network">
               <option value="btc">BTC</option>
               <option value="eth">ETH</option>
+              <option value="bsc">BSC (BEP-20)</option>
             </select>
           </div>
           <div class="form-group">

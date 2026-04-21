@@ -7,6 +7,11 @@ describe("normalizeAddress", () => {
     expect(value).toBe("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
   });
 
+  it("normalizes bsc address to checksum", () => {
+    const value = normalizeAddress("bsc", "0x55d398326f99059ff775485246999027b3197955");
+    expect(value).toBe("0x55d398326f99059fF775485246999027B3197955");
+  });
+
   it("accepts valid btc address", () => {
     const value = normalizeAddress("btc", "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh");
     expect(value).toBe("bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh");
