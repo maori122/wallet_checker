@@ -1,0 +1,14 @@
+name = "wallet-bot-miniapp"
+main = "src/index.ts"
+compatibility_date = "2026-04-22"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wallet_db"
+database_id = "5994fb7a-2a2f-4aae-9482-cb378b1c5076"
+
+[vars]
+DEV_AUTH_BYPASS = "false"
+
+[triggers]
+crons = ["*/2 * * * *"]
