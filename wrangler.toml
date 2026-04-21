@@ -1,6 +1,6 @@
 name = "wallet-bot-miniapp"
 main = "src/index.ts"
-compatibility_date = "2026-04-22"
+compatibility_date = "2026-04-21"
 
 [[d1_databases]]
 binding = "DB"
