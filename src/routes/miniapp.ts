@@ -219,7 +219,8 @@ function pageHtml(): string {
       .list-item {
         border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
         padding: 12px 0;
-        animation: fade-in 0.22s ease;
+        animation: fade-in 0.22s ease both;
+        animation-delay: var(--stagger, 0ms);
       }
       .list-item:last-child { border-bottom: none; }
       .list-item-top {
@@ -349,6 +350,16 @@ function pageHtml(): string {
         .title { font-size: 22px; }
         .tabs-wrap { top: 128px; }
       }
+      @media (prefers-reduced-motion: reduce) {
+        .panel.active.entered,
+        .list-item,
+        .btn,
+        .card,
+        .stat {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
     </style>
   </head>
   <body>
@@ -377,7 +388,7 @@ function pageHtml(): string {
         </div>
       </div>
 
-      <section id="wallets" class="panel active">
+      <section id="wallets" class="panel active entered">
         <div class="card">
           <div class="form-group">
             <label for="wallet-network" data-i18n="network">Network</label>
@@ -659,7 +670,7 @@ function pageHtml(): string {
         document.getElementById("contact-search").placeholder = t("searchContacts");
       }
 
-      function activatePanel(name) {
+      function activatePanel(name, withHaptic = true) {
         document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
         document.querySelectorAll(".panel").forEach((x) => {
           x.classList.remove("active");
@@ -669,7 +680,9 @@ function pageHtml(): string {
         const panel = document.getElementById(name);
         panel.classList.add("active");
         requestAnimationFrame(() => panel.classList.add("entered"));
-        haptic("selection");
+        if (withHaptic) {
+          haptic("selection");
+        }
       }
 
       function renderSkeleton(targetId, rows = 2) {
@@ -723,9 +736,10 @@ function pageHtml(): string {
           return;
         }
 
-        filtered.forEach((item) => {
+        filtered.forEach((item, index) => {
           const row = document.createElement("div");
           row.className = "list-item";
+          row.style.setProperty("--stagger", (index * 22) + "ms");
           row.innerHTML =
             '<div class="list-item-top"><div class="list-item-title">' +
             item.network.toUpperCase() +
@@ -770,9 +784,10 @@ function pageHtml(): string {
           return;
         }
 
-        filtered.forEach((item) => {
+        filtered.forEach((item, index) => {
           const row = document.createElement("div");
           row.className = "list-item";
+          row.style.setProperty("--stagger", (index * 22) + "ms");
           row.innerHTML =
             '<div class="list-item-top"><div class="list-item-title">' +
             item.label +
@@ -924,6 +939,7 @@ function pageHtml(): string {
       });
 
       (async function init() {
+        activatePanel("wallets", false);
         if (!initData) {
           showToast("Open from Telegram to authorize", true);
         }
