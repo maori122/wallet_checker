@@ -4,6 +4,7 @@ export type Env = {
   TELEGRAM_WEBHOOK_SECRET: string;
   ENCRYPTION_MASTER_KEY: string;
   ETHERSCAN_API_KEY?: string;
+  BSCSCAN_API_KEY?: string;
   DEV_AUTH_BYPASS?: string;
 };
 

@@ -8,7 +8,9 @@ import {
 } from "./db";
 
 const ETHERSCAN_BASE = "https://api.etherscan.io/api";
+const BSCSCAN_BASE = "https://api.bscscan.com/api";
 const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 
 type Asset = "BTC" | "ETH" | "USDT";
 type Network = "btc" | "eth" | "bsc";
@@ -176,6 +178,47 @@ async function fetchUsdtIncoming(address: string, apiKey: string): Promise<Incom
   return items;
 }
 
+async function fetchUsdtBscIncoming(address: string, apiKey: string): Promise<IncomingEvent[]> {
+  type BscscanTokenResponse = {
+    status: string;
+    result: Array<{
+      hash: string;
+      from: string;
+      to: string;
+      value: string;
+      tokenDecimal: string;
+      contractAddress: string;
+    }>;
+  };
+  const response = await fetchJson<BscscanTokenResponse>(
+    `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
+  );
+  const normalized = address.toLowerCase();
+  const items: IncomingEvent[] = [];
+
+  for (const row of response.result ?? []) {
+    if ((row.to ?? "").toLowerCase() !== normalized) {
+      continue;
+    }
+    if ((row.contractAddress ?? "").toLowerCase() !== USDT_BSC_CONTRACT.toLowerCase()) {
+      continue;
+    }
+    const decimals = Number.parseInt(row.tokenDecimal, 10) || 18;
+    const value = BigInt(row.value);
+    if (value <= 0n) {
+      continue;
+    }
+    items.push({
+      txid: row.hash,
+      from: row.from ?? null,
+      amount: Number(formatUnits(value, decimals)),
+      asset: "USDT",
+      network: "bsc"
+    });
+  }
+  return items;
+}
+
 async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number }> {
   const now = Date.now();
   if (priceCache && now - priceCache.timestamp < 60_000) {
@@ -268,6 +311,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
 
   const prices = await getPricesUsd();
   const etherscanKey = env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
+  const bscscanKey = env.BSCSCAN_API_KEY ?? "YourApiKeyToken";
 
   for (const wallet of wallets) {
     const settings = await getSettings(env, wallet.userId);
@@ -286,9 +330,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         ]);
         events = [...ethEvents, ...usdtEvents];
       } else {
-        // BSC wallets are accepted for storage and UI, but monitoring adapters
-        // for BSC scan providers are not wired in this MVP iteration yet.
-        events = [];
+        events = await fetchUsdtBscIncoming(wallet.address, bscscanKey);
       }
     } catch {
       continue;
