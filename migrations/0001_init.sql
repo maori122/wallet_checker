@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS wallets (
   network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc')),
   address_ciphertext TEXT NOT NULL,
   address_hash TEXT NOT NULL,
+  monitor_eth_native INTEGER NOT NULL DEFAULT 1,
+  monitor_usdt_erc20 INTEGER NOT NULL DEFAULT 1,
+  monitor_usdt_bep20 INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

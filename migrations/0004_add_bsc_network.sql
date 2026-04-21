@@ -6,12 +6,35 @@ CREATE TABLE wallets_new (
   network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc')),
   address_ciphertext TEXT NOT NULL,
   address_hash TEXT NOT NULL,
+  monitor_eth_native INTEGER NOT NULL DEFAULT 1,
+  monitor_usdt_erc20 INTEGER NOT NULL DEFAULT 1,
+  monitor_usdt_bep20 INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-INSERT INTO wallets_new (id, user_id, network, address_ciphertext, address_hash, created_at)
-SELECT id, user_id, network, address_ciphertext, address_hash, created_at FROM wallets;
+INSERT INTO wallets_new (
+  id,
+  user_id,
+  network,
+  address_ciphertext,
+  address_hash,
+  monitor_eth_native,
+  monitor_usdt_erc20,
+  monitor_usdt_bep20,
+  created_at
+)
+SELECT
+  id,
+  user_id,
+  network,
+  address_ciphertext,
+  address_hash,
+  CASE WHEN network = 'eth' THEN 1 ELSE 0 END,
+  CASE WHEN network = 'eth' THEN 1 ELSE 0 END,
+  CASE WHEN network = 'bsc' THEN 1 ELSE 0 END,
+  created_at
+FROM wallets;
 
 DROP TABLE wallets;
 ALTER TABLE wallets_new RENAME TO wallets;

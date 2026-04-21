@@ -398,6 +398,21 @@ function pageHtml(): string {
               <option value="bsc">BSC (BEP-20)</option>
             </select>
           </div>
+          <div id="wallet-asset-options" class="form-group">
+            <label data-i18n="watchAssets">Track assets</label>
+            <div class="switch">
+              <div><div class="switch-title" data-i18n="watchEthNative">ETH native</div></div>
+              <input type="checkbox" id="wallet-track-eth" aria-label="Track ETH native" checked />
+            </div>
+            <div class="switch">
+              <div><div class="switch-title" data-i18n="watchUsdtErc20">USDT ERC-20</div></div>
+              <input type="checkbox" id="wallet-track-usdt-erc20" aria-label="Track USDT ERC-20" checked />
+            </div>
+            <div class="switch">
+              <div><div class="switch-title" data-i18n="watchUsdtBep20">USDT BEP-20</div></div>
+              <input type="checkbox" id="wallet-track-usdt-bep20" aria-label="Track USDT BEP-20" checked />
+            </div>
+          </div>
           <div class="form-group">
             <label for="wallet-address" data-i18n="address">Address</label>
             <input id="wallet-address" aria-label="Wallet address" />
@@ -536,6 +551,10 @@ function pageHtml(): string {
           chainNotifHelp: "Notify on incoming transfers.",
           serviceNotif: "Service alerts",
           serviceNotifHelp: "Bot confirmations and updates.",
+          watchAssets: "Track assets",
+          watchEthNative: "ETH native",
+          watchUsdtErc20: "USDT ERC-20",
+          watchUsdtBep20: "USDT BEP-20",
           searchWallets: "Search wallets...",
           searchContacts: "Search contacts...",
           empty: "Nothing found",
@@ -574,6 +593,10 @@ function pageHtml(): string {
           chainNotifHelp: "О входящих переводах.",
           serviceNotif: "Уведомления бота",
           serviceNotifHelp: "Системные сообщения.",
+          watchAssets: "Отслеживать активы",
+          watchEthNative: "ETH (нативный)",
+          watchUsdtErc20: "USDT ERC-20",
+          watchUsdtBep20: "USDT BEP-20",
           searchWallets: "Поиск кошельков...",
           searchContacts: "Поиск контактов...",
           empty: "Ничего не найдено",
@@ -672,6 +695,27 @@ function pageHtml(): string {
         document.getElementById("contact-search").placeholder = t("searchContacts");
       }
 
+      function applyWalletAssetVisibility() {
+        const network = document.getElementById("wallet-network").value;
+        const ethSwitch = document.getElementById("wallet-track-eth").closest(".switch");
+        const usdtErc20Switch = document.getElementById("wallet-track-usdt-erc20").closest(".switch");
+        const usdtBep20Switch = document.getElementById("wallet-track-usdt-bep20").closest(".switch");
+
+        if (network === "eth") {
+          ethSwitch.style.display = "flex";
+          usdtErc20Switch.style.display = "flex";
+          usdtBep20Switch.style.display = "none";
+        } else if (network === "bsc") {
+          ethSwitch.style.display = "none";
+          usdtErc20Switch.style.display = "none";
+          usdtBep20Switch.style.display = "flex";
+        } else {
+          ethSwitch.style.display = "none";
+          usdtErc20Switch.style.display = "none";
+          usdtBep20Switch.style.display = "none";
+        }
+      }
+
       function activatePanel(name, withHaptic = true) {
         document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
         document.querySelectorAll(".panel").forEach((x) => {
@@ -742,12 +786,20 @@ function pageHtml(): string {
           const row = document.createElement("div");
           row.className = "list-item";
           row.style.setProperty("--stagger", (index * 22) + "ms");
+          const trackedAssets = [];
+          if (item.network === "btc") trackedAssets.push("BTC");
+          if (item.monitorEthNative) trackedAssets.push("ETH");
+          if (item.monitorUsdtErc20) trackedAssets.push("USDT ERC-20");
+          if (item.monitorUsdtBep20) trackedAssets.push("USDT BEP-20");
           row.innerHTML =
             '<div class="list-item-top"><div class="list-item-title">' +
             item.network.toUpperCase() +
             "</div></div>" +
             '<div class="list-item-sub">' +
             item.address +
+            "</div>" +
+            '<div class="list-item-sub">' +
+            trackedAssets.join(" · ") +
             "</div>";
           const actions = document.createElement("div");
           actions.className = "list-actions";
@@ -863,6 +915,11 @@ function pageHtml(): string {
         tab.addEventListener("click", () => activatePanel(tab.dataset.tab));
       });
 
+      document.getElementById("wallet-network").addEventListener("change", () => {
+        applyWalletAssetVisibility();
+        haptic("selection");
+      });
+
       window.addEventListener("scroll", () => {
         if (!header) return;
         if (window.scrollY > 12) {
@@ -877,7 +934,10 @@ function pageHtml(): string {
         try {
           await api("/wallets", "POST", {
             network: document.getElementById("wallet-network").value,
-            address: document.getElementById("wallet-address").value.trim()
+            address: document.getElementById("wallet-address").value.trim(),
+            monitorEthNative: document.getElementById("wallet-track-eth").checked,
+            monitorUsdtErc20: document.getElementById("wallet-track-usdt-erc20").checked,
+            monitorUsdtBep20: document.getElementById("wallet-track-usdt-bep20").checked
           });
           document.getElementById("wallet-address").value = "";
           showToast(t("addedWallet"));
@@ -941,6 +1001,7 @@ function pageHtml(): string {
       });
 
       (async function init() {
+        applyWalletAssetVisibility();
         activatePanel("wallets", false);
         if (!initData) {
           showToast("Open from Telegram to authorize", true);

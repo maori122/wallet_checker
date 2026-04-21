@@ -324,13 +324,21 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
       if (wallet.network === "btc") {
         events = await fetchBtcIncoming(wallet.address);
       } else if (wallet.network === "eth") {
-        const [ethEvents, usdtEvents] = await Promise.all([
-          fetchEthIncoming(wallet.address, etherscanKey),
-          fetchUsdtIncoming(wallet.address, etherscanKey)
-        ]);
-        events = [...ethEvents, ...usdtEvents];
+        const tasks: Promise<IncomingEvent[]>[] = [];
+        if (wallet.monitorEthNative) {
+          tasks.push(fetchEthIncoming(wallet.address, etherscanKey));
+        }
+        if (wallet.monitorUsdtErc20) {
+          tasks.push(fetchUsdtIncoming(wallet.address, etherscanKey));
+        }
+        const results = await Promise.all(tasks);
+        events = results.flat();
       } else {
-        events = await fetchUsdtBscIncoming(wallet.address, bscscanKey);
+        if (wallet.monitorUsdtBep20) {
+          events = await fetchUsdtBscIncoming(wallet.address, bscscanKey);
+        } else {
+          events = [];
+        }
       }
     } catch {
       continue;

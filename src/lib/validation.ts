@@ -24,7 +24,10 @@ export function normalizeAddress(network: "btc" | "eth" | "bsc", address: string
 
 export const createWalletSchema = z.object({
   network: walletNetworkSchema,
-  address: z.string().min(14).max(120)
+  address: z.string().min(14).max(120),
+  monitorEthNative: z.boolean().optional(),
+  monitorUsdtErc20: z.boolean().optional(),
+  monitorUsdtBep20: z.boolean().optional()
 });
 
 export const createContactSchema = z.object({

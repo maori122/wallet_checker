@@ -7,6 +7,9 @@ export type WalletItem = {
   id: string;
   network: "btc" | "eth" | "bsc";
   address: string;
+  monitorEthNative: boolean;
+  monitorUsdtErc20: boolean;
+  monitorUsdtBep20: boolean;
   createdAt: string;
 };
 
@@ -38,6 +41,9 @@ export type MonitoredWallet = {
   userId: string;
   network: "btc" | "eth" | "bsc";
   address: string;
+  monitorEthNative: boolean;
+  monitorUsdtErc20: boolean;
+  monitorUsdtBep20: boolean;
 };
 
 export type UsageSummary = {
@@ -83,16 +89,27 @@ async function ensureSettingsRow(env: Env, userId: string): Promise<void> {
 
 export async function listWallets(env: Env, userId: string): Promise<WalletItem[]> {
   const result = await env.DB.prepare(
-    "SELECT id, network, address_ciphertext, created_at FROM wallets WHERE user_id = ? ORDER BY created_at DESC"
+    "SELECT id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20, created_at FROM wallets WHERE user_id = ? ORDER BY created_at DESC"
   )
     .bind(userId)
-    .all<{ id: string; network: "btc" | "eth" | "bsc"; address_ciphertext: string; created_at: string }>();
+    .all<{
+      id: string;
+      network: "btc" | "eth" | "bsc";
+      address_ciphertext: string;
+      monitor_eth_native: number;
+      monitor_usdt_erc20: number;
+      monitor_usdt_bep20: number;
+      created_at: string;
+    }>();
 
   return Promise.all(
     result.results.map(async (row) => ({
       id: row.id,
       network: row.network,
       address: await decryptForUser(row.address_ciphertext, userId, env.ENCRYPTION_MASTER_KEY),
+      monitorEthNative: row.monitor_eth_native === 1,
+      monitorUsdtErc20: row.monitor_usdt_erc20 === 1,
+      monitorUsdtBep20: row.monitor_usdt_bep20 === 1,
       createdAt: row.created_at
     }))
   );
@@ -101,7 +118,13 @@ export async function listWallets(env: Env, userId: string): Promise<WalletItem[
 export async function createWallet(
   env: Env,
   userId: string,
-  payload: { network: "btc" | "eth" | "bsc"; address: string }
+  payload: {
+    network: "btc" | "eth" | "bsc";
+    address: string;
+    monitorEthNative?: boolean;
+    monitorUsdtErc20?: boolean;
+    monitorUsdtBep20?: boolean;
+  }
 ): Promise<void> {
   await ensureUserRow(env, userId);
   const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
@@ -114,12 +137,36 @@ export async function createWallet(
   const normalized = normalizeAddress(payload.network, payload.address);
   const ciphertext = await encryptForUser(normalized, userId, env.ENCRYPTION_MASTER_KEY);
   const hashed = await addressHash(normalized.toLowerCase());
+  const monitorEthNative =
+    payload.network === "eth" ? (payload.monitorEthNative ?? true) : false;
+  const monitorUsdtErc20 =
+    payload.network === "eth" ? (payload.monitorUsdtErc20 ?? true) : false;
+  const monitorUsdtBep20 =
+    payload.network === "bsc" ? (payload.monitorUsdtBep20 ?? true) : false;
 
   await env.DB.prepare(
-    `INSERT INTO wallets (id, user_id, network, address_ciphertext, address_hash, created_at)
-     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    `INSERT INTO wallets (
+      id,
+      user_id,
+      network,
+      address_ciphertext,
+      address_hash,
+      monitor_eth_native,
+      monitor_usdt_erc20,
+      monitor_usdt_bep20,
+      created_at
+    )
+     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   )
-    .bind(userId, payload.network, ciphertext, hashed)
+    .bind(
+      userId,
+      payload.network,
+      ciphertext,
+      hashed,
+      monitorEthNative ? 1 : 0,
+      monitorUsdtErc20 ? 1 : 0,
+      monitorUsdtBep20 ? 1 : 0
+    )
     .run();
 }
 
@@ -304,15 +351,26 @@ export async function getUsageSummary(env: Env, userId: string): Promise<UsageSu
 
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {
   const result = await env.DB.prepare(
-    "SELECT id, user_id, network, address_ciphertext FROM wallets ORDER BY created_at DESC"
-  ).all<{ id: string; user_id: string; network: "btc" | "eth" | "bsc"; address_ciphertext: string }>();
+    "SELECT id, user_id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20 FROM wallets ORDER BY created_at DESC"
+  ).all<{
+    id: string;
+    user_id: string;
+    network: "btc" | "eth" | "bsc";
+    address_ciphertext: string;
+    monitor_eth_native: number;
+    monitor_usdt_erc20: number;
+    monitor_usdt_bep20: number;
+  }>();
 
   return Promise.all(
     result.results.map(async (row) => ({
       id: row.id,
       userId: row.user_id,
       network: row.network,
-      address: await decryptForUser(row.address_ciphertext, row.user_id, env.ENCRYPTION_MASTER_KEY)
+      address: await decryptForUser(row.address_ciphertext, row.user_id, env.ENCRYPTION_MASTER_KEY),
+      monitorEthNative: row.monitor_eth_native === 1,
+      monitorUsdtErc20: row.monitor_usdt_erc20 === 1,
+      monitorUsdtBep20: row.monitor_usdt_bep20 === 1
     }))
   );
 }
