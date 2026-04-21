@@ -5,17 +5,18 @@ import type { Env, Language } from "../types/env";
 
 export type WalletItem = {
   id: string;
-  network: "btc" | "eth" | "bsc";
+  network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
   monitorEthNative: boolean;
   monitorUsdtErc20: boolean;
   monitorUsdtBep20: boolean;
+  monitorUsdtTrc20: boolean;
   createdAt: string;
 };
 
 export type ContactItem = {
   id: string;
-  network: "btc" | "eth" | "bsc";
+  network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
   label: string;
   createdAt: string;
@@ -39,11 +40,12 @@ export type StoredBotSession = {
 export type MonitoredWallet = {
   id: string;
   userId: string;
-  network: "btc" | "eth" | "bsc";
+  network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
   monitorEthNative: boolean;
   monitorUsdtErc20: boolean;
   monitorUsdtBep20: boolean;
+  monitorUsdtTrc20: boolean;
 };
 
 export type UsageSummary = {
@@ -89,16 +91,17 @@ async function ensureSettingsRow(env: Env, userId: string): Promise<void> {
 
 export async function listWallets(env: Env, userId: string): Promise<WalletItem[]> {
   const result = await env.DB.prepare(
-    "SELECT id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20, created_at FROM wallets WHERE user_id = ? ORDER BY created_at DESC"
+    "SELECT id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20, monitor_usdt_trc20, created_at FROM wallets WHERE user_id = ? ORDER BY created_at DESC"
   )
     .bind(userId)
     .all<{
       id: string;
-      network: "btc" | "eth" | "bsc";
+      network: "btc" | "eth" | "bsc" | "trc20";
       address_ciphertext: string;
       monitor_eth_native: number;
       monitor_usdt_erc20: number;
       monitor_usdt_bep20: number;
+      monitor_usdt_trc20: number;
       created_at: string;
     }>();
 
@@ -110,6 +113,7 @@ export async function listWallets(env: Env, userId: string): Promise<WalletItem[
       monitorEthNative: row.monitor_eth_native === 1,
       monitorUsdtErc20: row.monitor_usdt_erc20 === 1,
       monitorUsdtBep20: row.monitor_usdt_bep20 === 1,
+      monitorUsdtTrc20: row.monitor_usdt_trc20 === 1,
       createdAt: row.created_at
     }))
   );
@@ -119,11 +123,12 @@ export async function createWallet(
   env: Env,
   userId: string,
   payload: {
-    network: "btc" | "eth" | "bsc";
+    network: "btc" | "eth" | "bsc" | "trc20";
     address: string;
     monitorEthNative?: boolean;
     monitorUsdtErc20?: boolean;
     monitorUsdtBep20?: boolean;
+    monitorUsdtTrc20?: boolean;
   }
 ): Promise<void> {
   await ensureUserRow(env, userId);
@@ -143,6 +148,8 @@ export async function createWallet(
     payload.network === "eth" ? (payload.monitorUsdtErc20 ?? true) : false;
   const monitorUsdtBep20 =
     payload.network === "bsc" ? (payload.monitorUsdtBep20 ?? true) : false;
+  const monitorUsdtTrc20 =
+    payload.network === "trc20" ? (payload.monitorUsdtTrc20 ?? true) : false;
 
   await env.DB.prepare(
     `INSERT INTO wallets (
@@ -154,9 +161,10 @@ export async function createWallet(
       monitor_eth_native,
       monitor_usdt_erc20,
       monitor_usdt_bep20,
+      monitor_usdt_trc20,
       created_at
     )
-     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   )
     .bind(
       userId,
@@ -165,7 +173,8 @@ export async function createWallet(
       hashed,
       monitorEthNative ? 1 : 0,
       monitorUsdtErc20 ? 1 : 0,
-      monitorUsdtBep20 ? 1 : 0
+      monitorUsdtBep20 ? 1 : 0,
+      monitorUsdtTrc20 ? 1 : 0
     )
     .run();
 }
@@ -184,7 +193,7 @@ export async function listContacts(env: Env, userId: string): Promise<ContactIte
     .bind(userId)
     .all<{
       id: string;
-      network: "btc" | "eth" | "bsc";
+      network: "btc" | "eth" | "bsc" | "trc20";
       address_ciphertext: string;
       label_ciphertext: string;
       created_at: string;
@@ -204,7 +213,7 @@ export async function listContacts(env: Env, userId: string): Promise<ContactIte
 export async function createContact(
   env: Env,
   userId: string,
-  payload: { network: "btc" | "eth" | "bsc"; address: string; label: string }
+  payload: { network: "btc" | "eth" | "bsc" | "trc20"; address: string; label: string }
 ): Promise<void> {
   await ensureUserRow(env, userId);
   const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
@@ -351,15 +360,16 @@ export async function getUsageSummary(env: Env, userId: string): Promise<UsageSu
 
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {
   const result = await env.DB.prepare(
-    "SELECT id, user_id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20 FROM wallets ORDER BY created_at DESC"
+    "SELECT id, user_id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20, monitor_usdt_trc20 FROM wallets ORDER BY created_at DESC"
   ).all<{
     id: string;
     user_id: string;
-    network: "btc" | "eth" | "bsc";
+    network: "btc" | "eth" | "bsc" | "trc20";
     address_ciphertext: string;
     monitor_eth_native: number;
     monitor_usdt_erc20: number;
     monitor_usdt_bep20: number;
+    monitor_usdt_trc20: number;
   }>();
 
   return Promise.all(
@@ -370,7 +380,8 @@ export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWalle
       address: await decryptForUser(row.address_ciphertext, row.user_id, env.ENCRYPTION_MASTER_KEY),
       monitorEthNative: row.monitor_eth_native === 1,
       monitorUsdtErc20: row.monitor_usdt_erc20 === 1,
-      monitorUsdtBep20: row.monitor_usdt_bep20 === 1
+      monitorUsdtBep20: row.monitor_usdt_bep20 === 1,
+      monitorUsdtTrc20: row.monitor_usdt_trc20 === 1
     }))
   );
 }
@@ -378,7 +389,7 @@ export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWalle
 export async function resolveContactLabel(
   env: Env,
   userId: string,
-  network: "btc" | "eth" | "bsc",
+  network: "btc" | "eth" | "bsc" | "trc20",
   senderAddress: string
 ): Promise<string | null> {
   const hashed = await addressHash(senderAddress.toLowerCase());

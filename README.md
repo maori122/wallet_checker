@@ -10,7 +10,7 @@
 - Mini App с liquid-glass UI, поиском по спискам и inline-редактированием.
 - Ограничения по PRD: 10 кошельков, 50 знакомых адресов.
 - Шифрование чувствительных полей в D1 (`AES-GCM`, per-user key derivation).
-- Cron-мониторинг входящих BTC/ETH/USDT (Ethereum ERC-20 + BSC BEP-20), дедупликация и отправка уведомлений в Telegram.
+- Cron-мониторинг входящих BTC/ETH/USDT (Ethereum ERC-20 + BSC BEP-20 + TRON TRC-20), дедупликация и отправка уведомлений в Telegram.
 - Сопоставление отправителя со списком знакомых адресов (подпись в уведомлении).
 
 ## Быстрый старт
@@ -24,6 +24,7 @@
    - `wrangler secret put ENCRYPTION_MASTER_KEY`
    - `wrangler secret put ETHERSCAN_API_KEY`
    - `wrangler secret put BSCSCAN_API_KEY`
+   - `wrangler secret put TRONGRID_API_KEY` (опционально, для более стабильного TRON API лимита)
 4. Применить миграции:
    - `npm run db:migrate:local`
 5. Локальный запуск:

@@ -3,12 +3,13 @@ PRAGMA foreign_keys=OFF;
 CREATE TABLE wallets_new (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc')),
+  network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc', 'trc20')),
   address_ciphertext TEXT NOT NULL,
   address_hash TEXT NOT NULL,
   monitor_eth_native INTEGER NOT NULL DEFAULT 1,
   monitor_usdt_erc20 INTEGER NOT NULL DEFAULT 1,
   monitor_usdt_bep20 INTEGER NOT NULL DEFAULT 1,
+  monitor_usdt_trc20 INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -22,6 +23,7 @@ INSERT INTO wallets_new (
   monitor_eth_native,
   monitor_usdt_erc20,
   monitor_usdt_bep20,
+  monitor_usdt_trc20,
   created_at
 )
 SELECT
@@ -33,6 +35,7 @@ SELECT
   CASE WHEN network = 'eth' THEN 1 ELSE 0 END,
   CASE WHEN network = 'eth' THEN 1 ELSE 0 END,
   CASE WHEN network = 'bsc' THEN 1 ELSE 0 END,
+  CASE WHEN network = 'trc20' THEN 1 ELSE 0 END,
   created_at
 FROM wallets;
 
@@ -45,7 +48,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_unique_address_per_user ON wallets(
 CREATE TABLE contacts_new (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
-  network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc')),
+  network TEXT NOT NULL CHECK (network IN ('btc', 'eth', 'bsc', 'trc20')),
   address_ciphertext TEXT NOT NULL,
   address_hash TEXT NOT NULL,
   label_ciphertext TEXT NOT NULL,

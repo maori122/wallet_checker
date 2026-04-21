@@ -396,6 +396,7 @@ function pageHtml(): string {
               <option value="btc">BTC</option>
               <option value="eth">ETH</option>
               <option value="bsc">BSC (BEP-20)</option>
+              <option value="trc20">TRON (TRC-20)</option>
             </select>
           </div>
           <div id="wallet-asset-options" class="form-group">
@@ -411,6 +412,10 @@ function pageHtml(): string {
             <div class="switch">
               <div><div class="switch-title" data-i18n="watchUsdtBep20">USDT BEP-20</div></div>
               <input type="checkbox" id="wallet-track-usdt-bep20" aria-label="Track USDT BEP-20" checked />
+            </div>
+            <div class="switch">
+              <div><div class="switch-title" data-i18n="watchUsdtTrc20">USDT TRC-20</div></div>
+              <input type="checkbox" id="wallet-track-usdt-trc20" aria-label="Track USDT TRC-20" checked />
             </div>
           </div>
           <div class="form-group">
@@ -437,6 +442,7 @@ function pageHtml(): string {
               <option value="btc">BTC</option>
               <option value="eth">ETH</option>
               <option value="bsc">BSC (BEP-20)</option>
+              <option value="trc20">TRON (TRC-20)</option>
             </select>
           </div>
           <div class="form-group">
@@ -555,6 +561,7 @@ function pageHtml(): string {
           watchEthNative: "ETH native",
           watchUsdtErc20: "USDT ERC-20",
           watchUsdtBep20: "USDT BEP-20",
+          watchUsdtTrc20: "USDT TRC-20",
           searchWallets: "Search wallets...",
           searchContacts: "Search contacts...",
           empty: "Nothing found",
@@ -597,6 +604,7 @@ function pageHtml(): string {
           watchEthNative: "ETH (нативный)",
           watchUsdtErc20: "USDT ERC-20",
           watchUsdtBep20: "USDT BEP-20",
+          watchUsdtTrc20: "USDT TRC-20",
           searchWallets: "Поиск кошельков...",
           searchContacts: "Поиск контактов...",
           empty: "Ничего не найдено",
@@ -700,19 +708,28 @@ function pageHtml(): string {
         const ethSwitch = document.getElementById("wallet-track-eth").closest(".switch");
         const usdtErc20Switch = document.getElementById("wallet-track-usdt-erc20").closest(".switch");
         const usdtBep20Switch = document.getElementById("wallet-track-usdt-bep20").closest(".switch");
+        const usdtTrc20Switch = document.getElementById("wallet-track-usdt-trc20").closest(".switch");
 
         if (network === "eth") {
           ethSwitch.style.display = "flex";
           usdtErc20Switch.style.display = "flex";
           usdtBep20Switch.style.display = "none";
+          usdtTrc20Switch.style.display = "none";
         } else if (network === "bsc") {
           ethSwitch.style.display = "none";
           usdtErc20Switch.style.display = "none";
           usdtBep20Switch.style.display = "flex";
+          usdtTrc20Switch.style.display = "none";
+        } else if (network === "trc20") {
+          ethSwitch.style.display = "none";
+          usdtErc20Switch.style.display = "none";
+          usdtBep20Switch.style.display = "none";
+          usdtTrc20Switch.style.display = "flex";
         } else {
           ethSwitch.style.display = "none";
           usdtErc20Switch.style.display = "none";
           usdtBep20Switch.style.display = "none";
+          usdtTrc20Switch.style.display = "none";
         }
       }
 
@@ -791,6 +808,7 @@ function pageHtml(): string {
           if (item.monitorEthNative) trackedAssets.push("ETH");
           if (item.monitorUsdtErc20) trackedAssets.push("USDT ERC-20");
           if (item.monitorUsdtBep20) trackedAssets.push("USDT BEP-20");
+          if (item.monitorUsdtTrc20) trackedAssets.push("USDT TRC-20");
           row.innerHTML =
             '<div class="list-item-top"><div class="list-item-title">' +
             item.network.toUpperCase() +
@@ -937,7 +955,8 @@ function pageHtml(): string {
             address: document.getElementById("wallet-address").value.trim(),
             monitorEthNative: document.getElementById("wallet-track-eth").checked,
             monitorUsdtErc20: document.getElementById("wallet-track-usdt-erc20").checked,
-            monitorUsdtBep20: document.getElementById("wallet-track-usdt-bep20").checked
+            monitorUsdtBep20: document.getElementById("wallet-track-usdt-bep20").checked,
+            monitorUsdtTrc20: document.getElementById("wallet-track-usdt-trc20").checked
           });
           document.getElementById("wallet-address").value = "";
           showToast(t("addedWallet"));

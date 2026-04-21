@@ -1,4 +1,5 @@
 import { formatUnits, getAddress, isAddress } from "viem";
+import { TronWeb, utils as tronUtils } from "tronweb";
 import type { Env } from "../types/env";
 import {
   getSettings,
@@ -13,7 +14,7 @@ const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 
 type Asset = "BTC" | "ETH" | "USDT";
-type Network = "btc" | "eth" | "bsc";
+type Network = "btc" | "eth" | "bsc" | "trc20";
 
 type IncomingEvent = {
   txid: string;
@@ -219,6 +220,61 @@ async function fetchUsdtBscIncoming(address: string, apiKey: string): Promise<In
   return items;
 }
 
+async function fetchUsdtTrc20Incoming(address: string, apiKey?: string): Promise<IncomingEvent[]> {
+  type TronGridResponse = {
+    data?: Array<{
+      transaction_id: string;
+      from: string;
+      to: string;
+      value: string;
+      token_info?: {
+        symbol?: string;
+        decimals?: string;
+      };
+    }>;
+  };
+  const response = await fetch(`https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?only_confirmed=true&limit=40`, {
+    headers: apiKey
+      ? {
+          "TRON-PRO-API-KEY": apiKey
+        }
+      : undefined
+  });
+  if (!response.ok) {
+    throw new Error(`Trongrid request failed with status ${response.status}`);
+  }
+
+  const result = (await response.json()) as TronGridResponse;
+  const normalizedHex = tronUtils.address.toHex(address).toLowerCase();
+  const items: IncomingEvent[] = [];
+
+  for (const row of result.data ?? []) {
+    if (!row.to || !TronWeb.isAddress(row.to)) {
+      continue;
+    }
+    if (tronUtils.address.toHex(row.to).toLowerCase() !== normalizedHex) {
+      continue;
+    }
+    if ((row.token_info?.symbol ?? "").toUpperCase() !== "USDT") {
+      continue;
+    }
+    const decimals = Number.parseInt(row.token_info?.decimals ?? "6", 10) || 6;
+    const value = BigInt(row.value);
+    if (value <= 0n) {
+      continue;
+    }
+    items.push({
+      txid: row.transaction_id,
+      from: row.from ?? null,
+      amount: Number(formatUnits(value, decimals)),
+      asset: "USDT",
+      network: "trc20"
+    });
+  }
+
+  return items;
+}
+
 async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number }> {
   const now = Date.now();
   if (priceCache && now - priceCache.timestamp < 60_000) {
@@ -300,6 +356,14 @@ function normalizeSenderAddress(network: Network, sender: string | null): string
     return getAddress(sender);
   }
 
+  if (network === "trc20") {
+    if (!TronWeb.isAddress(sender)) {
+      return null;
+    }
+    const hex = tronUtils.address.toHex(sender);
+    return tronUtils.address.fromHex(hex);
+  }
+
   return sender;
 }
 
@@ -312,6 +376,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
   const prices = await getPricesUsd();
   const etherscanKey = env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
   const bscscanKey = env.BSCSCAN_API_KEY ?? "YourApiKeyToken";
+  const trongridKey = env.TRONGRID_API_KEY;
 
   for (const wallet of wallets) {
     const settings = await getSettings(env, wallet.userId);
@@ -334,10 +399,18 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         const results = await Promise.all(tasks);
         events = results.flat();
       } else {
-        if (wallet.monitorUsdtBep20) {
-          events = await fetchUsdtBscIncoming(wallet.address, bscscanKey);
+        if (wallet.network === "bsc") {
+          if (wallet.monitorUsdtBep20) {
+            events = await fetchUsdtBscIncoming(wallet.address, bscscanKey);
+          } else {
+            events = [];
+          }
         } else {
-          events = [];
+          if (wallet.monitorUsdtTrc20) {
+            events = await fetchUsdtTrc20Incoming(wallet.address, trongridKey);
+          } else {
+            events = [];
+          }
         }
       }
     } catch {

@@ -1,11 +1,12 @@
 import validateBitcoinAddress from "bitcoin-address-validation";
 import { getAddress, isAddress } from "viem";
+import { TronWeb, utils as tronUtils } from "tronweb";
 import { z } from "zod";
 import { MAX_LABEL_LENGTH } from "./constants";
 
-export const walletNetworkSchema = z.enum(["btc", "eth", "bsc"]);
+export const walletNetworkSchema = z.enum(["btc", "eth", "bsc", "trc20"]);
 
-export function normalizeAddress(network: "btc" | "eth" | "bsc", address: string): string {
+export function normalizeAddress(network: "btc" | "eth" | "bsc" | "trc20", address: string): string {
   const trimmed = address.trim();
   if (network === "btc") {
     const valid = validateBitcoinAddress(trimmed);
@@ -13,6 +14,14 @@ export function normalizeAddress(network: "btc" | "eth" | "bsc", address: string
       throw new Error("Invalid Bitcoin address");
     }
     return trimmed;
+  }
+
+  if (network === "trc20") {
+    if (!TronWeb.isAddress(trimmed)) {
+      throw new Error("Invalid TRON address");
+    }
+    const hex = tronUtils.address.toHex(trimmed);
+    return tronUtils.address.fromHex(hex);
   }
 
   if (!isAddress(trimmed)) {
@@ -27,7 +36,8 @@ export const createWalletSchema = z.object({
   address: z.string().min(14).max(120),
   monitorEthNative: z.boolean().optional(),
   monitorUsdtErc20: z.boolean().optional(),
-  monitorUsdtBep20: z.boolean().optional()
+  monitorUsdtBep20: z.boolean().optional(),
+  monitorUsdtTrc20: z.boolean().optional()
 });
 
 export const createContactSchema = z.object({

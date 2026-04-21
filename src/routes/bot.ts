@@ -213,7 +213,7 @@ function sectionKeyboard(language: Language): ReplyMarkup {
 
 function networkKeyboard(language: Language): ReplyMarkup {
   return {
-    keyboard: [["BTC", "ETH", "BSC"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
+    keyboard: [["BTC", "ETH", "BSC", "TRC20"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
     resize_keyboard: true
   };
 }
@@ -290,7 +290,7 @@ bot.post("/telegram", async (c) => {
   }
 
   if (session?.flow === "wallet:add:address") {
-    const network = session.payload?.network as "btc" | "eth" | undefined;
+    const network = session.payload?.network as "btc" | "eth" | "bsc" | "trc20" | undefined;
     if (!network) {
       await clearBotSession(c.env, userId);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language));
@@ -321,7 +321,7 @@ bot.post("/telegram", async (c) => {
   }
 
   if (session?.flow === "contact:add:address") {
-    const network = session.payload?.network as "btc" | "eth" | undefined;
+    const network = session.payload?.network as "btc" | "eth" | "bsc" | "trc20" | undefined;
     if (!network) {
       await clearBotSession(c.env, userId);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language));
@@ -333,7 +333,7 @@ bot.post("/telegram", async (c) => {
   }
 
   if (session?.flow === "contact:add:label") {
-    const network = session.payload?.network as "btc" | "eth" | undefined;
+    const network = session.payload?.network as "btc" | "eth" | "bsc" | "trc20" | undefined;
     const address = session.payload?.address as string | undefined;
     if (!network || !address) {
       await clearBotSession(c.env, userId);
@@ -448,14 +448,16 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "wallet:add:network" && (text === "BTC" || text === "ETH" || text === "BSC")) {
-    await setBotSession(c.env, userId, { flow: "wallet:add:address", payload: { network: text.toLowerCase() } });
+  if (session?.flow === "wallet:add:network" && (text === "BTC" || text === "ETH" || text === "BSC" || text === "TRC20")) {
+    const network = text === "TRC20" ? "trc20" : text.toLowerCase();
+    await setBotSession(c.env, userId, { flow: "wallet:add:address", payload: { network } });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletAddress"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "contact:add:network" && (text === "BTC" || text === "ETH" || text === "BSC")) {
-    await setBotSession(c.env, userId, { flow: "contact:add:address", payload: { network: text.toLowerCase() } });
+  if (session?.flow === "contact:add:network" && (text === "BTC" || text === "ETH" || text === "BSC" || text === "TRC20")) {
+    const network = text === "TRC20" ? "trc20" : text.toLowerCase();
+    await setBotSession(c.env, userId, { flow: "contact:add:address", payload: { network } });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
