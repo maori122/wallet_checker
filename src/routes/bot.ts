@@ -261,6 +261,13 @@ async function sendTelegramMessage(
   });
 }
 
+bot.get("/telegram", (c) =>
+  c.text(
+    "Webhook OK (GET). Telegram sends POST with JSON + X-Telegram-Bot-Api-Secret-Token. Check worker: GET /health",
+    200
+  )
+);
+
 bot.post("/telegram", async (c) => {
   const secret = c.req.header("x-telegram-bot-api-secret-token");
   if (!secret || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
