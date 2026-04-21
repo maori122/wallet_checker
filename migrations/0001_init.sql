@@ -31,18 +31,6 @@ CREATE TABLE IF NOT EXISTS contacts (
 CREATE INDEX IF NOT EXISTS idx_contacts_user_id ON contacts(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_unique_address_per_user ON contacts(user_id, network, address_hash);
 
-CREATE TABLE IF NOT EXISTS links (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
-  url_ciphertext TEXT NOT NULL,
-  title_ciphertext TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_links_user_id ON links(user_id);
-
 CREATE TABLE IF NOT EXISTS user_settings (
   user_id TEXT PRIMARY KEY,
   language TEXT NOT NULL CHECK (language IN ('ru', 'en')),

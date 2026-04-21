@@ -3,15 +3,12 @@ import type { Env } from "../types/env";
 import {
   clearBotSession,
   createContact,
-  createLink,
   createWallet,
   deleteContact,
-  deleteLink,
   deleteWallet,
   getBotSession,
   getSettings,
   listContacts,
-  listLinks,
   listWallets,
   setBotSession,
   updateSettings
@@ -48,12 +45,11 @@ type BotSession = {
 
 const I18N = {
   ru: {
-    greet: "Готово. Управляйте кошельками, знакомыми адресами, ссылками и настройками через кнопки ниже.",
+    greet: "Готово. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
     unknown: "Не понял сообщение. Выберите действие кнопкой меню.",
     mainMenu: "Главное меню",
     walletsTitle: "Мои кошельки",
     contactsTitle: "Знакомые кошельки",
-    linksTitle: "Мои ссылки",
     settingsTitle: "Настройки",
     askWalletNetwork: "Выберите сеть для кошелька.",
     askWalletAddress: "Отправьте адрес кошелька.",
@@ -70,22 +66,13 @@ const I18N = {
     contactDeletePick: "Отправьте номер записи для удаления.",
     contactsListEmpty: "Список знакомых пуст.",
     contactsDeleteEmpty: "Удалять нечего: список пуст.",
-    askLinkUrl: "Отправьте URL ссылки.",
-    askLinkTitle: "Отправьте название ссылки.",
-    linkAdded: "Ссылка добавлена.",
-    linkDeleted: "Ссылка удалена.",
-    linkDeletePick: "Отправьте номер ссылки для удаления.",
-    linksListEmpty: "Список ссылок пуст.",
-    linksDeleteEmpty: "Удалять нечего: список пуст.",
     invalidNumber: "Нужен корректный номер из списка.",
     invalidAddress: "Некорректный адрес. Проверьте формат и попробуйте снова.",
-    invalidUrl: "Некорректный URL. Пример: https://example.com",
     enterNumeric: "Введите число, например 0.01",
     settingsSaved: "Настройки сохранены.",
     testNotification: "Тестовое уведомление: бот подключен.",
     btnWallets: "Мои кошельки",
     btnContacts: "Знакомые кошельки",
-    btnLinks: "Мои ссылки",
     btnSettings: "Настройки",
     btnList: "Список",
     btnAdd: "Добавить",
@@ -106,12 +93,11 @@ const I18N = {
     askUsdt: "Введите порог USDT (например, 50)."
   },
   en: {
-    greet: "Ready. Use the buttons below to manage wallets, contacts, links, and settings.",
+    greet: "Ready. Use the buttons below to manage wallets, contacts, and settings.",
     unknown: "I did not understand. Please choose an action from the menu.",
     mainMenu: "Main menu",
     walletsTitle: "My wallets",
     contactsTitle: "Known wallets",
-    linksTitle: "My links",
     settingsTitle: "Settings",
     askWalletNetwork: "Choose wallet network.",
     askWalletAddress: "Send wallet address.",
@@ -128,22 +114,13 @@ const I18N = {
     contactDeletePick: "Send entry number to delete.",
     contactsListEmpty: "Known wallets list is empty.",
     contactsDeleteEmpty: "Nothing to delete: list is empty.",
-    askLinkUrl: "Send link URL.",
-    askLinkTitle: "Send link title.",
-    linkAdded: "Link added.",
-    linkDeleted: "Link deleted.",
-    linkDeletePick: "Send link number to delete.",
-    linksListEmpty: "Link list is empty.",
-    linksDeleteEmpty: "Nothing to delete: list is empty.",
     invalidNumber: "Please send a valid number from the list.",
     invalidAddress: "Invalid address. Please verify and try again.",
-    invalidUrl: "Invalid URL. Example: https://example.com",
     enterNumeric: "Enter a number, for example 0.01",
     settingsSaved: "Settings saved.",
     testNotification: "Test notification: bot is connected.",
     btnWallets: "My wallets",
     btnContacts: "Known wallets",
-    btnLinks: "My links",
     btnSettings: "Settings",
     btnList: "List",
     btnAdd: "Add",
@@ -182,7 +159,7 @@ function maskAddress(value: string): string {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
-function currentSection(session: BotSession | null): "wallets" | "contacts" | "links" | null {
+function currentSection(session: BotSession | null): "wallets" | "contacts" | null {
   if (!session?.flow.startsWith("section:")) {
     return null;
   }
@@ -192,9 +169,6 @@ function currentSection(session: BotSession | null): "wallets" | "contacts" | "l
   if (session.flow === "section:contacts") {
     return "contacts";
   }
-  if (session.flow === "section:links") {
-    return "links";
-  }
   return null;
 }
 
@@ -202,7 +176,7 @@ function mainKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
       [t(language, "btnWallets"), t(language, "btnContacts")],
-      [t(language, "btnLinks"), t(language, "btnSettings")]
+      [t(language, "btnSettings")]
     ],
     resize_keyboard: true
   };
@@ -261,13 +235,6 @@ async function sendTelegramMessage(
   });
 }
 
-bot.get("/telegram", (c) =>
-  c.text(
-    "Webhook OK (GET). Telegram sends POST with JSON + X-Telegram-Bot-Api-Secret-Token. Check worker: GET /health",
-    200
-  )
-);
-
 bot.post("/telegram", async (c) => {
   const secret = c.req.header("x-telegram-bot-api-secret-token");
   if (!secret || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -297,13 +264,7 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (isBtn(text, "btnMainMenu")) {
-    await clearBotSession(c.env, userId);
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "mainMenu"), mainKeyboard(language));
-    return c.json({ ok: true });
-  }
-
-  if (isBtn(text, "btnBack")) {
+  if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
     await clearBotSession(c.env, userId);
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "mainMenu"), mainKeyboard(language));
     return c.json({ ok: true });
@@ -384,46 +345,6 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "link:add:url") {
-    if (!text.startsWith("http://") && !text.startsWith("https://")) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidUrl"), sectionKeyboard(language));
-      return c.json({ ok: true });
-    }
-    await setBotSession(c.env, userId, { flow: "link:add:title", payload: { url: text } });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askLinkTitle"), sectionKeyboard(language));
-    return c.json({ ok: true });
-  }
-
-  if (session?.flow === "link:add:title") {
-    const url = session.payload?.url as string | undefined;
-    if (!url) {
-      await clearBotSession(c.env, userId);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language));
-      return c.json({ ok: true });
-    }
-    try {
-      await createLink(c.env, userId, { url, title: text });
-      await setBotSession(c.env, userId, { flow: "section:links" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "linkAdded"), sectionKeyboard(language));
-    } catch {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidUrl"), sectionKeyboard(language));
-    }
-    return c.json({ ok: true });
-  }
-
-  if (session?.flow === "link:delete:pick") {
-    const ids = (session.payload?.ids as string[] | undefined) ?? [];
-    const pick = Number.parseInt(text, 10);
-    if (!Number.isInteger(pick) || pick < 1 || pick > ids.length) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidNumber"), sectionKeyboard(language));
-      return c.json({ ok: true });
-    }
-    await deleteLink(c.env, userId, ids[pick - 1]);
-    await setBotSession(c.env, userId, { flow: "section:links" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "linkDeleted"), sectionKeyboard(language));
-    return c.json({ ok: true });
-  }
-
   if (session?.flow === "settings:threshold:btc" || session?.flow === "settings:threshold:eth" || session?.flow === "settings:threshold:usdt") {
     if (!/^\d+(\.\d+)?$/.test(text)) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "enterNumeric"), settingsKeyboard(language));
@@ -446,16 +367,13 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletsTitle"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
+
   if (isBtn(text, "btnContacts")) {
     await setBotSession(c.env, userId, { flow: "section:contacts" });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsTitle"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
-  if (isBtn(text, "btnLinks")) {
-    await setBotSession(c.env, userId, { flow: "section:links" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "linksTitle"), sectionKeyboard(language));
-    return c.json({ ok: true });
-  }
+
   if (isBtn(text, "btnSettings")) {
     await clearBotSession(c.env, userId);
     const summary =
@@ -490,16 +408,6 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "contactsTitle")}:\n${lines.join("\n")}`, sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    if (section === "links") {
-      const links = await listLinks(c.env, userId);
-      if (links.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "linksListEmpty"), sectionKeyboard(language));
-        return c.json({ ok: true });
-      }
-      const lines = links.map((item, index) => `${index + 1}. ${item.title} - ${item.url}`);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "linksTitle")}:\n${lines.join("\n")}`, sectionKeyboard(language));
-      return c.json({ ok: true });
-    }
 
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language));
     return c.json({ ok: true });
@@ -515,11 +423,6 @@ bot.post("/telegram", async (c) => {
     if (section === "contacts") {
       await setBotSession(c.env, userId, { flow: "contact:add:network" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactNetwork"), networkKeyboard(language));
-      return c.json({ ok: true });
-    }
-    if (section === "links") {
-      await setBotSession(c.env, userId, { flow: "link:add:url" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askLinkUrl"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language));
@@ -562,18 +465,6 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "contactDeletePick")}\n${lines.join("\n")}`, sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    if (section === "links") {
-      const links = await listLinks(c.env, userId);
-      if (links.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "linksDeleteEmpty"), sectionKeyboard(language));
-        return c.json({ ok: true });
-      }
-      const lines = links.map((item, index) => `${index + 1}. ${item.title}`);
-      await setBotSession(c.env, userId, { flow: "link:delete:pick", payload: { ids: links.map((item) => item.id) } });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "linkDeletePick")}\n${lines.join("\n")}`, sectionKeyboard(language));
-      return c.json({ ok: true });
-    }
-
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language));
     return c.json({ ok: true });
   }

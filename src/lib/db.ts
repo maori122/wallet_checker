@@ -18,13 +18,6 @@ export type ContactItem = {
   createdAt: string;
 };
 
-export type LinkItem = {
-  id: string;
-  url: string;
-  title: string;
-  createdAt: string;
-};
-
 export type UserSettings = {
   language: Language;
   btcThreshold: string;
@@ -45,6 +38,13 @@ export type MonitoredWallet = {
   userId: string;
   network: "btc" | "eth";
   address: string;
+};
+
+export type UsageSummary = {
+  walletCount: number;
+  walletLimit: number;
+  contactCount: number;
+  contactLimit: number;
 };
 
 async function ensureUserRow(env: Env, userId: string): Promise<void> {
@@ -210,62 +210,6 @@ export async function deleteContact(env: Env, userId: string, contactId: string)
   return result.meta.changes > 0;
 }
 
-export async function listLinks(env: Env, userId: string): Promise<LinkItem[]> {
-  const result = await env.DB.prepare(
-    "SELECT id, url_ciphertext, title_ciphertext, created_at FROM links WHERE user_id = ? ORDER BY created_at DESC"
-  )
-    .bind(userId)
-    .all<{ id: string; url_ciphertext: string; title_ciphertext: string; created_at: string }>();
-
-  return Promise.all(
-    result.results.map(async (row) => ({
-      id: row.id,
-      url: await decryptForUser(row.url_ciphertext, userId, env.ENCRYPTION_MASTER_KEY),
-      title: await decryptForUser(row.title_ciphertext, userId, env.ENCRYPTION_MASTER_KEY),
-      createdAt: row.created_at
-    }))
-  );
-}
-
-export async function createLink(
-  env: Env,
-  userId: string,
-  payload: { url: string; title: string }
-): Promise<void> {
-  await ensureUserRow(env, userId);
-  const urlCiphertext = await encryptForUser(payload.url.trim(), userId, env.ENCRYPTION_MASTER_KEY);
-  const titleCiphertext = await encryptForUser(payload.title.trim(), userId, env.ENCRYPTION_MASTER_KEY);
-
-  await env.DB.prepare(
-    `INSERT INTO links (id, user_id, url_ciphertext, title_ciphertext, created_at, updated_at)
-     VALUES (lower(hex(randomblob(16))), ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
-  )
-    .bind(userId, urlCiphertext, titleCiphertext)
-    .run();
-}
-
-export async function updateLinkTitle(
-  env: Env,
-  userId: string,
-  linkId: string,
-  title: string
-): Promise<boolean> {
-  const titleCiphertext = await encryptForUser(title.trim(), userId, env.ENCRYPTION_MASTER_KEY);
-  const result = await env.DB.prepare(
-    "UPDATE links SET title_ciphertext = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?"
-  )
-    .bind(titleCiphertext, linkId, userId)
-    .run();
-  return result.meta.changes > 0;
-}
-
-export async function deleteLink(env: Env, userId: string, linkId: string): Promise<boolean> {
-  const result = await env.DB.prepare("DELETE FROM links WHERE id = ? AND user_id = ?")
-    .bind(linkId, userId)
-    .run();
-  return result.meta.changes > 0;
-}
-
 export async function getSettings(env: Env, userId: string): Promise<UserSettings> {
   await ensureUserRow(env, userId);
   await ensureSettingsRow(env, userId);
@@ -337,6 +281,25 @@ export async function updateSettings(
     .run();
 
   return merged;
+}
+
+export async function getUsageSummary(env: Env, userId: string): Promise<UsageSummary> {
+  await ensureUserRow(env, userId);
+  const [walletCountRow, contactCountRow] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
+      .bind(userId)
+      .first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
+      .bind(userId)
+      .first<{ count: number }>()
+  ]);
+
+  return {
+    walletCount: walletCountRow?.count ?? 0,
+    walletLimit: MAX_WALLETS,
+    contactCount: contactCountRow?.count ?? 0,
+    contactLimit: MAX_CONTACTS
+  };
 }
 
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {

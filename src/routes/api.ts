@@ -4,25 +4,20 @@ import type { Env } from "../types/env";
 import { getUserId } from "../lib/auth";
 import {
   createContact,
-  createLink,
   createWallet,
   deleteContact,
-  deleteLink,
   deleteWallet,
   getSettings,
+  getUsageSummary,
   listContacts,
-  listLinks,
   listWallets,
   updateContactLabel,
-  updateLinkTitle,
   updateSettings
 } from "../lib/db";
 import {
   createContactSchema,
-  createLinkSchema,
   createWalletSchema,
   updateContactSchema,
-  updateLinkSchema,
   updateSettingsSchema
 } from "../lib/validation";
 
@@ -90,39 +85,14 @@ api.delete("/contacts/:id", async (c) => {
   return c.json({ ok: deleted }, deleted ? 200 : 404);
 });
 
-api.get("/links", async (c) => {
-  const items = await listLinks(c.env, getUserId(c));
-  return c.json({ items });
-});
-
-api.post("/links", async (c) => {
-  try {
-    const body = parseBody(createLinkSchema, await c.req.json());
-    await createLink(c.env, getUserId(c), body);
-    return c.json({ ok: true }, 201);
-  } catch (error) {
-    return c.json({ error: (error as Error).message }, 400);
-  }
-});
-
-api.patch("/links/:id", async (c) => {
-  try {
-    const body = parseBody(updateLinkSchema, await c.req.json());
-    const updated = await updateLinkTitle(c.env, getUserId(c), c.req.param("id"), body.title);
-    return c.json({ ok: updated }, updated ? 200 : 404);
-  } catch (error) {
-    return c.json({ error: (error as Error).message }, 400);
-  }
-});
-
-api.delete("/links/:id", async (c) => {
-  const deleted = await deleteLink(c.env, getUserId(c), c.req.param("id"));
-  return c.json({ ok: deleted }, deleted ? 200 : 404);
-});
-
 api.get("/settings", async (c) => {
   const settings = await getSettings(c.env, getUserId(c));
   return c.json({ settings });
+});
+
+api.get("/summary", async (c) => {
+  const summary = await getUsageSummary(c.env, getUserId(c));
+  return c.json({ summary });
 });
 
 api.put("/settings", async (c) => {

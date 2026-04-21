@@ -5,8 +5,9 @@
 ## Что уже есть
 
 - API с авторизацией через `initData` (и dev-bypass).
-- CRUD для `wallets`, `contacts`, `links`, `settings`.
+- CRUD для `wallets`, `contacts`, `settings`.
 - Кнопочный Telegram-бот (RU/EN) с пошаговыми сценариями добавления/удаления.
+- Mini App с liquid-glass UI, поиском по спискам и inline-редактированием.
 - Ограничения по PRD: 10 кошельков, 50 знакомых адресов.
 - Шифрование чувствительных полей в D1 (`AES-GCM`, per-user key derivation).
 - Cron-мониторинг входящих BTC/ETH/USDT, дедупликация и отправка уведомлений в Telegram.
@@ -36,5 +37,4 @@
 ## Следующие шаги
 
 - Подключить Mini App frontend и API-клиент.
-- Добавить inline-редактирование записей (не только delete).
 - Вынести blockchain providers в настраиваемые адаптеры и добавить retry/backoff.
