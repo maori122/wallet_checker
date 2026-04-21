@@ -37,7 +37,7 @@ function pageHtml(): string {
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
       }
-      body { padding: 0 0 28px; }
+      body { padding: 0 0 28px; overflow-x: hidden; }
       .shell { max-width: 860px; margin: 0 auto; }
 
       .header {
@@ -48,6 +48,11 @@ function pageHtml(): string {
         backdrop-filter: blur(16px) saturate(120%);
         border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
         padding: 16px 16px 12px;
+        transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+      }
+      .header.scrolled {
+        border-bottom-color: color-mix(in srgb, var(--border) 95%, transparent);
+        box-shadow: 0 8px 22px rgba(28, 28, 30, 0.08);
       }
       .title {
         margin: 0;
@@ -73,7 +78,9 @@ function pageHtml(): string {
         border-radius: 12px;
         padding: 9px 10px;
         box-shadow: 0 2px 9px rgba(28, 28, 30, 0.05);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
       }
+      .stat:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(28, 28, 30, 0.08); }
       .stat-label {
         font-size: 11px;
         color: var(--hint-color);
@@ -116,16 +123,22 @@ function pageHtml(): string {
       .tab.active {
         background: var(--bg-color);
         color: var(--text-color);
-        box-shadow: 0 2px 8px rgba(28, 28, 30, 0.08);
+        box-shadow: 0 3px 10px rgba(28, 28, 30, 0.1);
       }
 
       .panel {
         display: none;
         padding: 12px 16px 0;
+        opacity: 0;
+        transform: translateY(6px) scale(0.995);
       }
       .panel.active {
         display: block;
-        animation: fade-in 0.2s ease;
+      }
+      .panel.active.entered {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        transition: all 0.24s cubic-bezier(0.2, 0.9, 0.2, 1);
       }
       .card {
         background: color-mix(in srgb, var(--bg-color) 95%, white 5%);
@@ -134,7 +147,9 @@ function pageHtml(): string {
         padding: 14px;
         margin-bottom: 12px;
         box-shadow: 0 8px 24px rgba(28, 28, 30, 0.05);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
       }
+      .card:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(28, 28, 30, 0.08); }
 
       .form-group { margin-bottom: 10px; }
       label {
@@ -171,7 +186,7 @@ function pageHtml(): string {
         font-size: 16px;
         font-weight: 700;
         cursor: pointer;
-        transition: transform 0.12s ease, filter 0.2s ease;
+        transition: transform 0.12s ease, filter 0.2s ease, box-shadow 0.2s ease;
       }
       .btn:active { transform: scale(0.985); }
       .btn.primary {
@@ -204,6 +219,7 @@ function pageHtml(): string {
       .list-item {
         border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
         padding: 12px 0;
+        animation: fade-in 0.22s ease;
       }
       .list-item:last-child { border-bottom: none; }
       .list-item-top {
@@ -255,11 +271,36 @@ function pageHtml(): string {
       .switch-title { font-size: 14px; font-weight: 700; }
       .switch-sub { margin-top: 2px; font-size: 12px; color: var(--hint-color); }
       .switch input[type="checkbox"] {
-        width: 44px;
+        width: 46px;
         height: 28px;
         min-height: 28px;
-        accent-color: var(--btn-color);
+        appearance: none;
+        -webkit-appearance: none;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+        background: color-mix(in srgb, var(--hint-color) 26%, transparent);
+        position: relative;
         cursor: pointer;
+        transition: all 0.22s ease;
+      }
+      .switch input[type="checkbox"]::before {
+        content: "";
+        position: absolute;
+        top: 1px;
+        left: 1px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.22);
+        transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1);
+      }
+      .switch input[type="checkbox"]:checked {
+        background: var(--btn-color);
+        border-color: color-mix(in srgb, var(--btn-color) 80%, transparent);
+      }
+      .switch input[type="checkbox"]:checked::before {
+        transform: translateX(18px);
       }
 
       .skeleton-line {
@@ -448,6 +489,7 @@ function pageHtml(): string {
       tg?.ready();
       tg?.expand();
       const initData = tg?.initData || "";
+      const header = document.querySelector(".header");
 
       const state = {
         lang: "en",
@@ -539,11 +581,25 @@ function pageHtml(): string {
         return (I18N[state.lang] || I18N.en)[key] || key;
       }
 
+      function haptic(mode = "selection") {
+        const h = tg?.HapticFeedback;
+        if (!h) return;
+        try {
+          if (mode === "selection") h.selectionChanged();
+          if (mode === "success") h.notificationOccurred("success");
+          if (mode === "error") h.notificationOccurred("error");
+          if (mode === "light") h.impactOccurred("light");
+        } catch {
+          // no-op in clients without haptic support
+        }
+      }
+
       function showToast(text, isError = false) {
         const toast = document.getElementById("toast");
         toast.textContent = text;
         toast.style.display = "block";
         toast.style.borderColor = isError ? "#ff9eb188" : "var(--border)";
+        haptic(isError ? "error" : "light");
         setTimeout(() => {
           toast.style.display = "none";
         }, 2200);
@@ -605,9 +661,15 @@ function pageHtml(): string {
 
       function activatePanel(name) {
         document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((x) => {
+          x.classList.remove("active");
+          x.classList.remove("entered");
+        });
         document.querySelector('.tab[data-tab="' + name + '"]').classList.add("active");
-        document.getElementById(name).classList.add("active");
+        const panel = document.getElementById(name);
+        panel.classList.add("active");
+        requestAnimationFrame(() => panel.classList.add("entered"));
+        haptic("selection");
       }
 
       function renderSkeleton(targetId, rows = 2) {
@@ -784,7 +846,17 @@ function pageHtml(): string {
         tab.addEventListener("click", () => activatePanel(tab.dataset.tab));
       });
 
+      window.addEventListener("scroll", () => {
+        if (!header) return;
+        if (window.scrollY > 12) {
+          header.classList.add("scrolled");
+        } else {
+          header.classList.remove("scrolled");
+        }
+      });
+
       document.getElementById("wallet-add").addEventListener("click", async () => {
+        haptic("light");
         try {
           await api("/wallets", "POST", {
             network: document.getElementById("wallet-network").value,
@@ -799,6 +871,7 @@ function pageHtml(): string {
       });
 
       document.getElementById("contact-add").addEventListener("click", async () => {
+        haptic("light");
         try {
           await api("/contacts", "POST", {
             network: document.getElementById("contact-network").value,
@@ -815,6 +888,7 @@ function pageHtml(): string {
       });
 
       document.getElementById("settings-save").addEventListener("click", async () => {
+        haptic("light");
         try {
           await api("/settings", "PUT", {
             language: document.getElementById("lang").value,
@@ -842,6 +916,11 @@ function pageHtml(): string {
             if (id === "contact-search") renderContacts();
           }, 140);
         });
+      });
+
+      ["usd-toggle", "chain-toggle", "service-toggle"].forEach((id) => {
+        const el = document.getElementById(id);
+        el.addEventListener("change", () => haptic("selection"));
       });
 
       (async function init() {
