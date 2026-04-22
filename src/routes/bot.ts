@@ -362,9 +362,7 @@ function isCabinetActionButton(input: string): boolean {
   return (
     isBtn(input, "btnPaySubscription") ||
     isBtn(input, "btnCheckPayment") ||
-    isBtn(input, "btnActivatePromo") ||
-    isBtn(input, "paymentNetworkBsc") ||
-    isBtn(input, "paymentNetworkTrc20")
+    isBtn(input, "btnActivatePromo")
   );
 }
 
@@ -550,7 +548,7 @@ function hasActiveSubscription(subscription: { status: "inactive" | "active"; ex
 }
 
 function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true): ReplyMarkup {
-  if (!hasFullAccess && !isAdmin) {
+  if (!hasFullAccess) {
     return {
       keyboard: [[t(language, "btnCabinet")]],
       resize_keyboard: true
@@ -737,7 +735,7 @@ bot.post("/telegram", async (c) => {
   const language = settings.language;
   let session = await getBotSession(c.env, userId);
   const subscription = await getSubscriptionInfo(c.env, userId);
-  const hasBotAccess = isAdmin || hasActiveSubscription(subscription);
+  const hasBotAccess = hasActiveSubscription(subscription);
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
