@@ -134,6 +134,8 @@ const I18N = {
     paymentCheckPending: "Платеж пока не найден. Проверьте сумму/сеть и попробуйте еще раз через минуту.",
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
+    accessRequired: "Доступ к функциям бота открывается после оплаты подписки.",
+    accessRequiredHint: "Откройте личный кабинет и нажмите «💳 Оплатить подписку».",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -260,6 +262,8 @@ const I18N = {
     paymentCheckPending: "Payment not found yet. Verify amount/network and try again in a minute.",
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
+    accessRequired: "Bot features unlock after subscription payment.",
+    accessRequiredHint: "Open Account and tap \"💳 Pay subscription\".",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
@@ -534,7 +538,24 @@ function isAdminUser(env: Env, userId: string): boolean {
   return ids.includes(userId);
 }
 
-function mainKeyboard(language: Language, isAdmin = false): ReplyMarkup {
+function hasActiveSubscription(subscription: { status: "inactive" | "active"; expiresAt: string | null }): boolean {
+  if (subscription.status !== "active") {
+    return false;
+  }
+  if (!subscription.expiresAt) {
+    return false;
+  }
+  const expiresMs = Date.parse(subscription.expiresAt);
+  return Number.isFinite(expiresMs) && expiresMs > Date.now();
+}
+
+function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true): ReplyMarkup {
+  if (!hasFullAccess && !isAdmin) {
+    return {
+      keyboard: [[t(language, "btnCabinet")]],
+      resize_keyboard: true
+    };
+  }
   const keyboard: string[][] = [
     [t(language, "btnWallets"), t(language, "btnContacts")],
     [t(language, "btnSettings"), t(language, "btnCabinet")]
@@ -715,14 +736,19 @@ bot.post("/telegram", async (c) => {
   let settings = await getSettings(c.env, userId);
   const language = settings.language;
   let session = await getBotSession(c.env, userId);
+  const subscription = await getSubscriptionInfo(c.env, userId);
+  const hasBotAccess = isAdmin || hasActiveSubscription(subscription);
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
+    const welcomeText = hasBotAccess
+      ? `${t(language, "greet")}\n\n${t(language, "mainMenu")}`
+      : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`;
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "greet")}\n\n${t(language, "mainMenu")}`,
-      mainKeyboard(language, isAdmin)
+      welcomeText,
+      mainKeyboard(language, isAdmin, hasBotAccess)
     );
     return c.json({ ok: true });
   }
@@ -735,8 +761,10 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "greet")}\n\n${t(language, "mainMenu")}`,
-      mainKeyboard(language, isAdmin)
+      hasBotAccess
+        ? `${t(language, "greet")}\n\n${t(language, "mainMenu")}`
+        : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`,
+      mainKeyboard(language, isAdmin, hasBotAccess)
     );
     return c.json({ ok: true });
   }
@@ -754,6 +782,27 @@ bot.post("/telegram", async (c) => {
   if (isCabinetActionButton(text) && session?.flow.startsWith("cabinet:")) {
     session = { flow: "section:cabinet" };
     await setBotSession(c.env, userId, session);
+  }
+
+  const allowsPaymentFlow =
+    isBtn(text, "btnCabinet") ||
+    isBtn(text, "btnPaySubscription") ||
+    isBtn(text, "btnCheckPayment") ||
+    isBtn(text, "btnActivatePromo") ||
+    isBtn(text, "paymentNetworkBsc") ||
+    isBtn(text, "paymentNetworkTrc20") ||
+    session?.flow === "cabinet:promo:code" ||
+    session?.flow === "cabinet:pay:network";
+
+  if (!hasBotAccess && !allowsPaymentFlow) {
+    await setBotSession(c.env, userId, { flow: "section:cabinet" });
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`,
+      mainKeyboard(language, isAdmin, false)
+    );
+    return c.json({ ok: true });
   }
 
   if (canAutoAddWalletFromMessage(session)) {
