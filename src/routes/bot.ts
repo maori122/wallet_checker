@@ -326,6 +326,13 @@ function inferSectionFromFlow(flow: string | undefined): "wallets" | "contacts" 
   return null;
 }
 
+function canAutoAddWalletFromMessage(session: BotSession | null): boolean {
+  if (!session) {
+    return true;
+  }
+  return session.flow === "section:wallets";
+}
+
 function withState(
   language: Language,
   key: "usdState" | "chainState" | "serviceState",
@@ -471,16 +478,23 @@ function sectionKeyboard(language: Language): ReplyMarkup {
 
 function networkKeyboard(language: Language): ReplyMarkup {
   return {
-    keyboard: [["BTC", "ETH", "BSC", "TRC20"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
+    keyboard: [["BTC", "ETH", "BEP20", "TRC20"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
     resize_keyboard: true
   };
 }
 
-function networkLabel(network: WalletNetwork): "BTC" | "ETH" | "BSC" | "TRC20" {
+function formatNetwork(network: WalletNetwork): "BTC" | "ETH" | "BEP20" | "TRC20" {
   if (network === "trc20") {
     return "TRC20";
   }
-  return network.toUpperCase() as "BTC" | "ETH" | "BSC";
+  if (network === "bsc") {
+    return "BEP20";
+  }
+  return network.toUpperCase() as "BTC" | "ETH";
+}
+
+function networkLabel(network: WalletNetwork): "BTC" | "ETH" | "BEP20" | "TRC20" {
+  return formatNetwork(network);
 }
 
 function parseNetworkLabel(value: string): WalletNetwork | null {
@@ -490,7 +504,7 @@ function parseNetworkLabel(value: string): WalletNetwork | null {
   if (value === "ETH") {
     return "eth";
   }
-  if (value === "BSC") {
+  if (value === "BSC" || value === "BEP20") {
     return "bsc";
   }
   if (value === "TRC20") {
@@ -611,6 +625,34 @@ bot.post("/telegram", async (c) => {
     if (inferred) {
       session = { flow: `section:${inferred}` };
       await setBotSession(c.env, userId, session);
+    }
+  }
+
+  if (canAutoAddWalletFromMessage(session)) {
+    const candidates = detectAddressNetworks(text) as WalletNetwork[];
+    if (candidates.length === 1) {
+      try {
+        await createWallet(c.env, userId, { network: candidates[0], address: text });
+        await setBotSession(c.env, userId, { flow: "section:wallets" });
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
+      } catch (error) {
+        const messageText = (error as Error).message.includes("Invalid") ? t(language, "invalidAddress") : (error as Error).message;
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
+      }
+      return c.json({ ok: true });
+    }
+    if (candidates.length > 1) {
+      await setBotSession(c.env, userId, {
+        flow: "wallet:add:pick-network",
+        payload: { address: text, candidates }
+      });
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "askDetectedNetwork"),
+        detectedNetworkKeyboard(language, candidates)
+      );
+      return c.json({ ok: true });
     }
   }
 
@@ -741,7 +783,7 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        `[${wallet.network.toUpperCase()}] ${maskAddress(wallet.address)}\n${body}`,
+        `[${formatNetwork(wallet.network)}] ${maskAddress(wallet.address)}\n${body}`,
         sectionKeyboard(language)
       );
     } catch {
@@ -787,7 +829,7 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "transferRateAskVote")}\n[${item.network.toUpperCase()}] ${maskAddress(item.counterpartyAddress)}`,
+      `${t(language, "transferRateAskVote")}\n[${formatNetwork(item.network)}] ${maskAddress(item.counterpartyAddress)}`,
       voteKeyboard(language)
     );
     return c.json({ ok: true });
@@ -811,7 +853,7 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        `${t(language, "transferRateDone")}\n[${updated.network.toUpperCase()}] ${maskAddress(updated.address)}\n` +
+        `${t(language, "transferRateDone")}\n[${formatNetwork(updated.network)}] ${maskAddress(updated.address)}\n` +
           `Score: ${updated.score} (👍 ${updated.likesCount} / 👎 ${updated.dislikesCount})`,
         sectionKeyboard(language)
       );
@@ -1016,7 +1058,7 @@ bot.post("/telegram", async (c) => {
       }
       const lines = stopped.map(
         (item, index) =>
-          `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)} by ${toUserLabel({
+          `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)} by ${toUserLabel({
             userId: item.addedByUserId,
             username: item.addedByUsername,
             displayName: item.addedByDisplayName
@@ -1214,7 +1256,7 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletListEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = wallets.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)}`);
+      const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
       await sendPagedList({
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
@@ -1231,7 +1273,7 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsListEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = contacts.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${item.label} - ${maskAddress(item.address)}`);
+      const lines = contacts.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`);
       await sendPagedList({
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
@@ -1263,7 +1305,7 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletListEmpty"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    const lines = wallets.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)}`);
+    const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
     await setBotSession(c.env, userId, { flow: "wallet:balance:pick", payload: { ids: wallets.map((item) => item.id) } });
     await sendPagedList({
       token: c.env.TELEGRAM_BOT_TOKEN,
@@ -1297,7 +1339,7 @@ bot.post("/telegram", async (c) => {
           }
         }
         const directionMark = item.direction === "incoming" ? "⬅" : "➡";
-        return `${index + 1}. ${directionMark} [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
+        return `${index + 1}. ${directionMark} [${formatNetwork(item.network)}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
       })
     );
     await sendPagedList({
@@ -1325,7 +1367,7 @@ bot.post("/telegram", async (c) => {
     }
     const lines = rateable.map(
       (item, index) =>
-        `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(item.counterpartyAddress ?? "")}`
+        `${index + 1}. [${formatNetwork(item.network)}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(item.counterpartyAddress ?? "")}`
     );
     await setBotSession(c.env, userId, { flow: "transfer:rate:pick", payload: { ids: rateable.map((item) => item.id) } });
     await sendPagedList({
@@ -1360,15 +1402,15 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "wallet:add:network" && (text === "BTC" || text === "ETH" || text === "BSC" || text === "TRC20")) {
-    const network = text === "TRC20" ? "trc20" : text.toLowerCase();
+  if (session?.flow === "wallet:add:network" && parseNetworkLabel(text)) {
+    const network = parseNetworkLabel(text) as WalletNetwork;
     await setBotSession(c.env, userId, { flow: "wallet:add:address", payload: { network } });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletAddress"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "contact:add:network" && (text === "BTC" || text === "ETH" || text === "BSC" || text === "TRC20")) {
-    const network = text === "TRC20" ? "trc20" : text.toLowerCase();
+  if (session?.flow === "contact:add:network" && parseNetworkLabel(text)) {
+    const network = parseNetworkLabel(text) as WalletNetwork;
     await setBotSession(c.env, userId, { flow: "contact:add:address", payload: { network } });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language));
     return c.json({ ok: true });
@@ -1382,7 +1424,7 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletDeleteEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = wallets.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)}`);
+      const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
       await setBotSession(c.env, userId, { flow: "wallet:delete:pick", payload: { ids: wallets.map((item) => item.id) } });
       await sendPagedList({
         token: c.env.TELEGRAM_BOT_TOKEN,
@@ -1400,7 +1442,7 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsDeleteEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = contacts.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${item.label} - ${maskAddress(item.address)}`);
+      const lines = contacts.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`);
       await setBotSession(c.env, userId, { flow: "contact:delete:pick", payload: { ids: contacts.map((item) => item.id) } });
       await sendPagedList({
         token: c.env.TELEGRAM_BOT_TOKEN,
@@ -1507,7 +1549,7 @@ bot.post("/telegram", async (c) => {
     }
     const lines = top.map(
       (item, index) =>
-        `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)} — ${item.score} (👍 ${item.likesCount} / 👎 ${item.dislikesCount})`
+        `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)} — ${item.score} (👍 ${item.likesCount} / 👎 ${item.dislikesCount})`
     );
     await sendPagedList({
       token: c.env.TELEGRAM_BOT_TOKEN,
@@ -1556,7 +1598,7 @@ bot.post("/telegram", async (c) => {
           userId: item.actorUserId,
           username: item.actorUsername,
           displayName: item.actorDisplayName
-        })} · ${item.entityType} · [${item.network.toUpperCase()}] ${maskAddress(item.address)}${item.label ? ` (${item.label})` : ""}`
+        })} · ${item.entityType} · [${formatNetwork(item.network)}] ${maskAddress(item.address)}${item.label ? ` (${item.label})` : ""}`
     );
     await sendPagedList({
       token: c.env.TELEGRAM_BOT_TOKEN,
