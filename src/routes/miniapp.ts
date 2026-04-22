@@ -174,12 +174,15 @@ function pageHtml(): string {
       tg?.ready();
       tg?.expand();
       const initData = tg?.initData || "";
+      const tgLanguageCode = String(tg?.initDataUnsafe?.user?.language_code || "").toLowerCase();
+      const initialLang = tgLanguageCode.startsWith("ru") ? "ru" : "en";
 
-      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null, lang: "ru" };
+      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null, lang: initialLang };
       const $ = (id) => document.getElementById(id);
       function msg(ru, en) {
         return state.lang === "en" ? en : ru;
       }
+      document.documentElement.lang = state.lang;
       function toast(text, bad = false) {
         const el = $("toast");
         el.textContent = String(text || "");
@@ -370,7 +373,8 @@ function pageHtml(): string {
       async function loadSettings() {
         const data = await api("/settings");
         const s = data.settings;
-        const lang = s.language === "en" ? "en" : "ru";
+        // Prefer explicit saved setting, fallback to Telegram language when setting is missing/invalid.
+        const lang = s.language === "en" || s.language === "ru" ? s.language : initialLang;
         state.lang = lang;
         document.documentElement.lang = lang;
         $("set-lang").value = lang;
@@ -669,7 +673,8 @@ function pageHtml(): string {
           await loadMe();
           applyAccessRestrictions();
           if (state.me?.isAdmin || state.me?.hasFullAccess) {
-            await Promise.all([loadSummary(), loadWallets(), loadContacts(), loadHistory(), loadSettings(), loadSubscription()]);
+            await loadSettings();
+            await Promise.all([loadSummary(), loadWallets(), loadContacts(), loadHistory(), loadSubscription()]);
             if (state.me?.isAdmin) {
               await loadAdmin();
             }
