@@ -7,6 +7,8 @@
 - API с авторизацией через `initData` (и dev-bypass).
 - CRUD для `wallets`, `contacts`, `settings`.
 - Кнопочный Telegram-бот (RU/EN) с пошаговыми сценариями добавления/удаления.
+- Просмотр баланса кошелька и истории переводов прямо в боте.
+- Система репутации пользователей, админ-сброс репутации, стоп-кошельки и аудит добавленных ссылок.
 - Mini App с liquid-glass UI, поиском по спискам и inline-редактированием.
 - Ограничения по PRD: 10 кошельков, 50 знакомых адресов.
 - Шифрование чувствительных полей в D1 (`AES-GCM`, per-user key derivation).
@@ -25,9 +27,11 @@
    - `wrangler secret put ETHERSCAN_API_KEY`
    - `wrangler secret put BSCSCAN_API_KEY`
    - `wrangler secret put TRONGRID_API_KEY` (опционально, для более стабильного TRON API лимита)
-4. Применить миграции:
+4. Добавить админов в `wrangler.toml` (переменная окружения Worker):
+   - `ADMIN_USER_IDS = "123456789,987654321"`
+5. Применить миграции:
    - `npm run db:migrate:local`
-5. Локальный запуск:
+6. Локальный запуск:
    - `npm run dev`
 
 ## DEV авторизация

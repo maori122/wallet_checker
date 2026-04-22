@@ -2,7 +2,9 @@ import { formatUnits, getAddress, isAddress } from "viem";
 import { TronWeb, utils as tronUtils } from "tronweb";
 import type { Env } from "../types/env";
 import {
+  appendTransferHistory,
   getSettings,
+  isStoppedWallet,
   listWalletsForMonitoring,
   reserveNotificationDedup,
   resolveContactLabel
@@ -436,6 +438,12 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
       }
 
       const normalizedFrom = normalizeSenderAddress(event.network, event.from);
+      if (normalizedFrom) {
+        const stopped = await isStoppedWallet(env, event.network, normalizedFrom);
+        if (stopped) {
+          continue;
+        }
+      }
       const label = normalizedFrom
         ? await resolveContactLabel(env, wallet.userId, event.network, normalizedFrom)
         : null;
@@ -453,6 +461,15 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         usdEstimate
       });
 
+      await appendTransferHistory(env, {
+        userId: wallet.userId,
+        walletId: wallet.id,
+        network: event.network,
+        asset: event.asset,
+        txid: event.txid,
+        fromAddress: normalizedFrom ?? event.from,
+        amount: toFixedTrimmed(event.amount)
+      });
       await sendTelegramMessage(env, wallet.userId, text);
     }
   }

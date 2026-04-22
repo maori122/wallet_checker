@@ -6,6 +6,7 @@ export type Env = {
   ETHERSCAN_API_KEY?: string;
   BSCSCAN_API_KEY?: string;
   TRONGRID_API_KEY?: string;
+  ADMIN_USER_IDS?: string;
   DEV_AUTH_BYPASS?: string;
 };
 

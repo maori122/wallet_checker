@@ -17,6 +17,7 @@ import {
 import {
   createContactSchema,
   createWalletSchema,
+  detectAddressNetworks,
   updateContactSchema,
   updateSettingsSchema
 } from "../lib/validation";
@@ -65,6 +66,21 @@ api.post("/contacts", async (c) => {
     const body = parseBody(createContactSchema, await c.req.json());
     await createContact(c.env, getUserId(c), body);
     return c.json({ ok: true }, 201);
+  } catch (error) {
+    return c.json({ error: (error as Error).message }, 400);
+  }
+});
+
+api.post("/detect-network", async (c) => {
+  try {
+    const body = parseBody(
+      z.object({
+        address: z.string().trim().min(14).max(120)
+      }),
+      await c.req.json()
+    );
+    const candidates = detectAddressNetworks(body.address);
+    return c.json({ candidates });
   } catch (error) {
     return c.json({ error: (error as Error).message }, 400);
   }

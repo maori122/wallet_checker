@@ -55,6 +55,41 @@ export type UsageSummary = {
   contactLimit: number;
 };
 
+export type ReputationEntry = {
+  userId: string;
+  score: number;
+  updatedAt: string;
+};
+
+export type StoppedWallet = {
+  id: string;
+  network: "btc" | "eth" | "bsc" | "trc20";
+  address: string;
+  addedByUserId: string;
+  createdAt: string;
+};
+
+export type LinkAuditEntry = {
+  id: string;
+  actorUserId: string;
+  entityType: "wallet" | "contact";
+  network: "btc" | "eth" | "bsc" | "trc20";
+  address: string;
+  label: string | null;
+  createdAt: string;
+};
+
+export type TransferHistoryItem = {
+  id: string;
+  walletId: string;
+  network: "btc" | "eth" | "bsc" | "trc20";
+  asset: "BTC" | "ETH" | "USDT";
+  txid: string;
+  fromAddress: string | null;
+  amount: string;
+  createdAt: string;
+};
+
 async function ensureUserRow(env: Env, userId: string): Promise<void> {
   await env.DB.prepare(
     "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO NOTHING"
@@ -87,6 +122,70 @@ async function ensureSettingsRow(env: Env, userId: string): Promise<void> {
       DEFAULT_SETTINGS.usdtThreshold
     )
     .run();
+}
+
+async function ensureReputationRow(env: Env, userId: string): Promise<void> {
+  await ensureUserRow(env, userId);
+  await env.DB.prepare(
+    `INSERT INTO user_reputation (user_id, score, updated_at)
+     VALUES (?, 0, CURRENT_TIMESTAMP)
+     ON CONFLICT(user_id) DO NOTHING`
+  )
+    .bind(userId)
+    .run();
+}
+
+async function appendLinkAudit(
+  env: Env,
+  payload: {
+    actorUserId: string;
+    entityType: "wallet" | "contact";
+    network: "btc" | "eth" | "bsc" | "trc20";
+    address: string;
+    label?: string;
+  }
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO link_audit_log (
+      id,
+      actor_user_id,
+      entity_type,
+      network,
+      address_plaintext,
+      label_plaintext,
+      created_at
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+  )
+    .bind(
+      payload.actorUserId,
+      payload.entityType,
+      payload.network,
+      payload.address,
+      payload.label ?? null
+    )
+    .run();
+}
+
+export async function incrementUserReputation(
+  env: Env,
+  userId: string,
+  delta: number
+): Promise<number> {
+  await ensureReputationRow(env, userId);
+  await env.DB.prepare(
+    `UPDATE user_reputation
+     SET score = score + ?, updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?`
+  )
+    .bind(delta, userId)
+    .run();
+
+  const row = await env.DB.prepare(
+    "SELECT score FROM user_reputation WHERE user_id = ?"
+  )
+    .bind(userId)
+    .first<{ score: number }>();
+  return row?.score ?? 0;
 }
 
 export async function listWallets(env: Env, userId: string): Promise<WalletItem[]> {
@@ -177,6 +276,14 @@ export async function createWallet(
       monitorUsdtTrc20 ? 1 : 0
     )
     .run();
+
+  await appendLinkAudit(env, {
+    actorUserId: userId,
+    entityType: "wallet",
+    network: payload.network,
+    address: normalized
+  });
+  await incrementUserReputation(env, userId, 1);
 }
 
 export async function deleteWallet(env: Env, userId: string, walletId: string): Promise<boolean> {
@@ -242,6 +349,15 @@ export async function createContact(
   )
     .bind(userId, payload.network, addressCiphertext, hashed, labelCiphertext)
     .run();
+
+  await appendLinkAudit(env, {
+    actorUserId: userId,
+    entityType: "contact",
+    network: payload.network,
+    address: normalized,
+    label: payload.label.trim()
+  });
+  await incrementUserReputation(env, userId, 1);
 }
 
 export async function updateContactLabel(
@@ -356,6 +472,219 @@ export async function getUsageSummary(env: Env, userId: string): Promise<UsageSu
     contactCount: contactCountRow?.count ?? 0,
     contactLimit: MAX_CONTACTS
   };
+}
+
+export async function getUserReputation(env: Env, userId: string): Promise<number> {
+  await ensureReputationRow(env, userId);
+  const row = await env.DB.prepare("SELECT score FROM user_reputation WHERE user_id = ?")
+    .bind(userId)
+    .first<{ score: number }>();
+  return row?.score ?? 0;
+}
+
+export async function listTopReputations(env: Env, limit = 20): Promise<ReputationEntry[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const result = await env.DB.prepare(
+    `SELECT user_id, score, updated_at
+     FROM user_reputation
+     ORDER BY score DESC, updated_at DESC
+     LIMIT ?`
+  )
+    .bind(safeLimit)
+    .all<{ user_id: string; score: number; updated_at: string }>();
+
+  return result.results.map((row) => ({
+    userId: row.user_id,
+    score: row.score,
+    updatedAt: row.updated_at
+  }));
+}
+
+export async function resetUserReputation(env: Env, userId: string): Promise<void> {
+  await ensureReputationRow(env, userId);
+  await env.DB.prepare(
+    "UPDATE user_reputation SET score = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+  )
+    .bind(userId)
+    .run();
+}
+
+export async function addStoppedWallet(
+  env: Env,
+  adminUserId: string,
+  network: "btc" | "eth" | "bsc" | "trc20",
+  address: string
+): Promise<void> {
+  await ensureUserRow(env, adminUserId);
+  const normalized = normalizeAddress(network, address);
+  const hashed = await addressHash(normalized.toLowerCase());
+  await env.DB.prepare(
+    `INSERT INTO stopped_wallets (id, network, address_plaintext, address_hash, added_by_user_id, created_at)
+     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(network, address_hash) DO NOTHING`
+  )
+    .bind(network, normalized, hashed, adminUserId)
+    .run();
+}
+
+export async function removeStoppedWallet(
+  env: Env,
+  network: "btc" | "eth" | "bsc" | "trc20",
+  address: string
+): Promise<boolean> {
+  const normalized = normalizeAddress(network, address);
+  const hashed = await addressHash(normalized.toLowerCase());
+  const result = await env.DB.prepare(
+    "DELETE FROM stopped_wallets WHERE network = ? AND address_hash = ?"
+  )
+    .bind(network, hashed)
+    .run();
+  return result.meta.changes > 0;
+}
+
+export async function isStoppedWallet(
+  env: Env,
+  network: "btc" | "eth" | "bsc" | "trc20",
+  address: string
+): Promise<boolean> {
+  const hashed = await addressHash(address.toLowerCase());
+  const row = await env.DB.prepare(
+    "SELECT id FROM stopped_wallets WHERE network = ? AND address_hash = ? LIMIT 1"
+  )
+    .bind(network, hashed)
+    .first<{ id: string }>();
+  return Boolean(row?.id);
+}
+
+export async function listStoppedWallets(env: Env, limit = 50): Promise<StoppedWallet[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const result = await env.DB.prepare(
+    `SELECT id, network, address_plaintext, added_by_user_id, created_at
+     FROM stopped_wallets
+     ORDER BY created_at DESC
+     LIMIT ?`
+  )
+    .bind(safeLimit)
+    .all<{
+      id: string;
+      network: "btc" | "eth" | "bsc" | "trc20";
+      address_plaintext: string;
+      added_by_user_id: string;
+      created_at: string;
+    }>();
+
+  return result.results.map((row) => ({
+    id: row.id,
+    network: row.network,
+    address: row.address_plaintext,
+    addedByUserId: row.added_by_user_id,
+    createdAt: row.created_at
+  }));
+}
+
+export async function listLinkAuditEntries(env: Env, limit = 30): Promise<LinkAuditEntry[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const result = await env.DB.prepare(
+    `SELECT id, actor_user_id, entity_type, network, address_plaintext, label_plaintext, created_at
+     FROM link_audit_log
+     ORDER BY created_at DESC
+     LIMIT ?`
+  )
+    .bind(safeLimit)
+    .all<{
+      id: string;
+      actor_user_id: string;
+      entity_type: "wallet" | "contact";
+      network: "btc" | "eth" | "bsc" | "trc20";
+      address_plaintext: string;
+      label_plaintext: string | null;
+      created_at: string;
+    }>();
+
+  return result.results.map((row) => ({
+    id: row.id,
+    actorUserId: row.actor_user_id,
+    entityType: row.entity_type,
+    network: row.network,
+    address: row.address_plaintext,
+    label: row.label_plaintext,
+    createdAt: row.created_at
+  }));
+}
+
+export async function appendTransferHistory(
+  env: Env,
+  payload: {
+    userId: string;
+    walletId: string;
+    network: "btc" | "eth" | "bsc" | "trc20";
+    asset: "BTC" | "ETH" | "USDT";
+    txid: string;
+    fromAddress: string | null;
+    amount: string;
+  }
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO transfer_history (
+      id,
+      user_id,
+      wallet_id,
+      network,
+      asset,
+      txid,
+      from_address,
+      amount_text,
+      created_at
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id, wallet_id, txid, asset, network) DO NOTHING`
+  )
+    .bind(
+      payload.userId,
+      payload.walletId,
+      payload.network,
+      payload.asset,
+      payload.txid,
+      payload.fromAddress,
+      payload.amount
+    )
+    .run();
+}
+
+export async function listTransferHistory(
+  env: Env,
+  userId: string,
+  limit = 20
+): Promise<TransferHistoryItem[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const result = await env.DB.prepare(
+    `SELECT id, wallet_id, network, asset, txid, from_address, amount_text, created_at
+     FROM transfer_history
+     WHERE user_id = ?
+     ORDER BY created_at DESC
+     LIMIT ?`
+  )
+    .bind(userId, safeLimit)
+    .all<{
+      id: string;
+      wallet_id: string;
+      network: "btc" | "eth" | "bsc" | "trc20";
+      asset: "BTC" | "ETH" | "USDT";
+      txid: string;
+      from_address: string | null;
+      amount_text: string;
+      created_at: string;
+    }>();
+
+  return result.results.map((row) => ({
+    id: row.id,
+    walletId: row.wallet_id,
+    network: row.network,
+    asset: row.asset,
+    txid: row.txid,
+    fromAddress: row.from_address,
+    amount: row.amount_text,
+    createdAt: row.created_at
+  }));
 }
 
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {

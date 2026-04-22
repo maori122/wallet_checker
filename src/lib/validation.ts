@@ -6,6 +6,24 @@ import { MAX_LABEL_LENGTH } from "./constants";
 
 export const walletNetworkSchema = z.enum(["btc", "eth", "bsc", "trc20"]);
 
+export function detectAddressNetworks(address: string): Array<"btc" | "eth" | "bsc" | "trc20"> {
+  const trimmed = address.trim();
+  const result: Array<"btc" | "eth" | "bsc" | "trc20"> = [];
+
+  if (validateBitcoinAddress(trimmed)) {
+    result.push("btc");
+  }
+  if (TronWeb.isAddress(trimmed)) {
+    result.push("trc20");
+  }
+  if (isAddress(trimmed)) {
+    // One EVM address can exist on multiple EVM chains.
+    result.push("eth", "bsc");
+  }
+
+  return result;
+}
+
 export function normalizeAddress(network: "btc" | "eth" | "bsc" | "trc20", address: string): string {
   const trimmed = address.trim();
   if (network === "btc") {

@@ -562,6 +562,8 @@ function pageHtml(): string {
           watchUsdtErc20: "USDT ERC-20",
           watchUsdtBep20: "USDT BEP-20",
           watchUsdtTrc20: "USDT TRC-20",
+          chooseNetworkPrompt: "Select network for this address",
+          autoDetectedNetwork: "Network detected: ",
           searchWallets: "Search wallets...",
           searchContacts: "Search contacts...",
           empty: "Nothing found",
@@ -605,6 +607,8 @@ function pageHtml(): string {
           watchUsdtErc20: "USDT ERC-20",
           watchUsdtBep20: "USDT BEP-20",
           watchUsdtTrc20: "USDT TRC-20",
+          chooseNetworkPrompt: "Выберите сеть для этого адреса",
+          autoDetectedNetwork: "Сеть определена: ",
           searchWallets: "Поиск кошельков...",
           searchContacts: "Поиск контактов...",
           empty: "Ничего не найдено",
@@ -679,6 +683,32 @@ function pageHtml(): string {
           throw new Error(data.error || ("HTTP " + response.status));
         }
         return data;
+      }
+
+      function normalizeNetworkInput(value) {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "btc" || normalized === "eth" || normalized === "bsc" || normalized === "trc20") {
+          return normalized;
+        }
+        return null;
+      }
+
+      async function detectNetwork(address) {
+        const data = await api("/detect-network", "POST", { address });
+        const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+        if (candidates.length === 0) {
+          throw new Error(state.lang === "ru" ? "Не удалось определить сеть для адреса." : "Could not detect address network.");
+        }
+        if (candidates.length === 1) {
+          return candidates[0];
+        }
+
+        const promptText = t("chooseNetworkPrompt") + ": " + candidates.join(", ").toUpperCase();
+        const picked = normalizeNetworkInput(window.prompt(promptText, candidates[0]));
+        if (!picked || !candidates.includes(picked)) {
+          throw new Error(state.lang === "ru" ? "Сеть не выбрана." : "Network not selected.");
+        }
+        return picked;
       }
 
       function applySummary() {
@@ -950,16 +980,21 @@ function pageHtml(): string {
       document.getElementById("wallet-add").addEventListener("click", async () => {
         haptic("light");
         try {
+          const address = document.getElementById("wallet-address").value.trim();
+          const detectedNetwork = await detectNetwork(address);
+          document.getElementById("wallet-network").value = detectedNetwork;
+          applyWalletAssetVisibility();
+
           await api("/wallets", "POST", {
-            network: document.getElementById("wallet-network").value,
-            address: document.getElementById("wallet-address").value.trim(),
+            network: detectedNetwork,
+            address,
             monitorEthNative: document.getElementById("wallet-track-eth").checked,
             monitorUsdtErc20: document.getElementById("wallet-track-usdt-erc20").checked,
             monitorUsdtBep20: document.getElementById("wallet-track-usdt-bep20").checked,
             monitorUsdtTrc20: document.getElementById("wallet-track-usdt-trc20").checked
           });
           document.getElementById("wallet-address").value = "";
-          showToast(t("addedWallet"));
+          showToast(t("addedWallet") + " · " + t("autoDetectedNetwork") + detectedNetwork.toUpperCase());
           await loadWallets();
         } catch (error) {
           showToast(error.message, true);
@@ -969,14 +1004,18 @@ function pageHtml(): string {
       document.getElementById("contact-add").addEventListener("click", async () => {
         haptic("light");
         try {
+          const address = document.getElementById("contact-address").value.trim();
+          const detectedNetwork = await detectNetwork(address);
+          document.getElementById("contact-network").value = detectedNetwork;
+
           await api("/contacts", "POST", {
-            network: document.getElementById("contact-network").value,
-            address: document.getElementById("contact-address").value.trim(),
+            network: detectedNetwork,
+            address,
             label: document.getElementById("contact-label").value.trim()
           });
           document.getElementById("contact-address").value = "";
           document.getElementById("contact-label").value = "";
-          showToast(t("addedContact"));
+          showToast(t("addedContact") + " · " + t("autoDetectedNetwork") + detectedNetwork.toUpperCase());
           await loadContacts();
         } catch (error) {
           showToast(error.message, true);
