@@ -11,7 +11,7 @@ import {
 } from "./db";
 
 const PLAN_DURATION_DAYS = 30;
-const SUBSCRIPTION_BASE_AMOUNT_USDT = 5;
+const SUBSCRIPTION_BASE_AMOUNT_USDT = 15;
 const PAYMENT_REQUEST_TTL_MINUTES = 45;
 const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 const DEFAULT_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
@@ -53,10 +53,8 @@ function formatIsoForLanguage(value: string, language: Language): string {
   return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US");
 }
 
-function makeAmountText(userId: string): string {
-  const seed = (Date.now() + Number.parseInt(userId.slice(-4), 10)) % 900;
-  const extra = (100 + seed) / 1000;
-  return (SUBSCRIPTION_BASE_AMOUNT_USDT + extra).toFixed(3);
+function makeAmountText(): string {
+  return String(SUBSCRIPTION_BASE_AMOUNT_USDT);
 }
 
 async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
@@ -213,7 +211,7 @@ export async function createSubscriptionPaymentInvoice(
     network,
     asset: "USDT",
     payAddress: network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env),
-    amountText: makeAmountText(userId),
+    amountText: makeAmountText(),
     durationDays: PLAN_DURATION_DAYS,
     expiresAt
   });
