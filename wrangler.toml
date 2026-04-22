@@ -1,4 +1,4 @@
-name = "wallet-bot-miniapp"
+name = "wallet"
 main = "src/index.ts"
 compatibility_date = "2026-04-21"
 
