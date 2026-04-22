@@ -775,7 +775,7 @@ bot.post("/telegram", async (c) => {
   const language = settings.language;
   let session = await getBotSession(c.env, userId);
   const subscription = await getSubscriptionInfo(c.env, userId);
-  const hasBotAccess = hasActiveSubscription(subscription);
+  const hasBotAccess = isAdmin || hasActiveSubscription(subscription);
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
