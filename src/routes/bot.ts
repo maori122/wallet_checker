@@ -130,6 +130,7 @@ const I18N = {
     paymentExpiresAt: "Действует до",
     paymentInstruction:
       "Оплатите ТОЧНУЮ сумму и нажмите «✅ Проверить оплату». Автопроверка также идет каждые 2 минуты.",
+    paymentCopyHint: "Нажмите на адрес, чтобы быстро скопировать.",
     paymentCheckNoRequest: "Активного счета нет. Нажмите «💳 Оплатить подписку».",
     paymentCheckPending: "Платеж пока не найден. Проверьте сумму/сеть и попробуйте еще раз через минуту.",
     paymentNetworkBsc: "🟡 USDT BEP20",
@@ -258,6 +259,7 @@ const I18N = {
     paymentExpiresAt: "Valid until",
     paymentInstruction:
       "Pay the EXACT amount and tap \"✅ Check payment\". Automatic check runs every 2 minutes.",
+    paymentCopyHint: "Tap the address to copy it quickly.",
     paymentCheckNoRequest: "No active invoice. Tap \"💳 Pay subscription\" first.",
     paymentCheckPending: "Payment not found yet. Verify amount/network and try again in a minute.",
     paymentNetworkBsc: "🟡 USDT BEP20",
@@ -488,7 +490,16 @@ function formatDateForLanguage(value: string | null, language: Language): string
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US");
+  return new Intl.DateTimeFormat(language === "ru" ? "ru-RU" : "en-US", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(date);
 }
 
 function mapCreateError(
@@ -688,7 +699,8 @@ async function sendTelegramMessage(
   token: string,
   chatId: number,
   text: string,
-  replyMarkup?: ReplyMarkup
+  replyMarkup?: ReplyMarkup,
+  parseMode?: "HTML" | "MarkdownV2"
 ): Promise<Response> {
   const payload: Record<string, unknown> = {
     chat_id: chatId,
@@ -696,6 +708,9 @@ async function sendTelegramMessage(
   };
   if (replyMarkup) {
     payload.reply_markup = replyMarkup;
+  }
+  if (parseMode) {
+    payload.parse_mode = parseMode;
   }
 
   return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -705,6 +720,31 @@ async function sendTelegramMessage(
     },
     body: JSON.stringify(payload)
   });
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function buildCabinetSummaryHtml(
+  language: Language,
+  subscription: { planCode: string; status: "active" | "inactive"; expiresAt: string | null; promoActivations: number }
+): string {
+  const statusLabel =
+    subscription.status === "active"
+      ? `✅ ${t(language, "cabinetStatusActive")}`
+      : `⛔ ${t(language, "cabinetStatusInactive")}`;
+  const expiresAt = formatDateForLanguage(subscription.expiresAt, language);
+  return (
+    `🪪 <b>${escapeHtml(t(language, "cabinetTitle"))}</b>\n\n` +
+    `📦 <b>${escapeHtml(t(language, "cabinetPlan"))}:</b> <code>${escapeHtml(subscription.planCode)}</code>\n` +
+    `🟢 <b>${escapeHtml(t(language, "cabinetStatus"))}:</b> ${escapeHtml(statusLabel)}\n` +
+    `🕒 <b>${escapeHtml(t(language, "cabinetExpiresAt"))}:</b> ${escapeHtml(expiresAt)}\n` +
+    `🎟️ <b>${escapeHtml(t(language, "cabinetPromoActivations"))}:</b> ${subscription.promoActivations}`
+  );
 }
 
 bot.post("/telegram", async (c) => {
@@ -1182,15 +1222,19 @@ bot.post("/telegram", async (c) => {
     const invoice = await createSubscriptionPaymentInvoice(c.env, userId, network);
     await setBotSession(c.env, userId, { flow: "section:cabinet" });
     const networkLabel = network === "bsc" ? t(language, "paymentNetworkBsc") : t(language, "paymentNetworkTrc20");
+    const htmlText =
+      `<b>${escapeHtml(t(language, "paymentInvoiceTitle"))}</b> (${escapeHtml(networkLabel)})\n\n` +
+      `💵 <b>${escapeHtml(t(language, "paymentAmount"))}:</b> ${escapeHtml(invoice.amountText)} ${escapeHtml(invoice.asset)}\n` +
+      `🏦 <b>${escapeHtml(t(language, "paymentAddress"))}:</b>\n<code>${escapeHtml(invoice.payAddress)}</code>\n` +
+      `🕒 <b>${escapeHtml(t(language, "paymentExpiresAt"))}:</b> ${escapeHtml(formatDateForLanguage(invoice.expiresAt, language))}\n\n` +
+      `ℹ️ ${escapeHtml(t(language, "paymentInstruction"))}\n` +
+      `📋 ${escapeHtml(t(language, "paymentCopyHint"))}`;
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "paymentInvoiceTitle")} (${networkLabel})\n` +
-        `${t(language, "paymentAmount")}: ${invoice.amountText} ${invoice.asset}\n` +
-        `${t(language, "paymentAddress")}: ${invoice.payAddress}\n` +
-        `${t(language, "paymentExpiresAt")}: ${formatDateForLanguage(invoice.expiresAt, language)}\n\n` +
-        `${t(language, "paymentInstruction")}`,
-      cabinetKeyboard(language)
+      htmlText,
+      cabinetKeyboard(language),
+      "HTML"
     );
     return c.json({ ok: true });
   }
@@ -1203,20 +1247,13 @@ bot.post("/telegram", async (c) => {
       }
       const subscription = await activatePromoCode(c.env, userId, text);
       await clearBotSession(c.env, userId);
-      const statusLabel =
-        subscription.status === "active"
-          ? t(language, "cabinetStatusActive")
-          : t(language, "cabinetStatusInactive");
-      const expiresAt = formatDateForLanguage(subscription.expiresAt, language);
+      const summaryHtml = buildCabinetSummaryHtml(language, subscription);
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        `${t(language, "promoActivated")}\n\n${t(language, "cabinetTitle")}\n` +
-          `${t(language, "cabinetPlan")}: ${subscription.planCode}\n` +
-          `${t(language, "cabinetStatus")}: ${statusLabel}\n` +
-          `${t(language, "cabinetExpiresAt")}: ${expiresAt}\n` +
-          `${t(language, "cabinetPromoActivations")}: ${subscription.promoActivations}`,
-        cabinetKeyboard(language)
+        `✅ ${escapeHtml(t(language, "promoActivated"))}\n\n${summaryHtml}`,
+        cabinetKeyboard(language),
+        "HTML"
       );
     } catch (error) {
       const code = (error as Error).message;
@@ -1415,20 +1452,13 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnCabinet")) {
     await setBotSession(c.env, userId, { flow: "section:cabinet" });
     const subscription = await getSubscriptionInfo(c.env, userId);
-    const statusLabel =
-      subscription.status === "active"
-        ? t(language, "cabinetStatusActive")
-        : t(language, "cabinetStatusInactive");
-    const expiresAt = formatDateForLanguage(subscription.expiresAt, language);
+    const summaryHtml = buildCabinetSummaryHtml(language, subscription);
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "cabinetTitle")}\n` +
-        `${t(language, "cabinetPlan")}: ${subscription.planCode}\n` +
-        `${t(language, "cabinetStatus")}: ${statusLabel}\n` +
-        `${t(language, "cabinetExpiresAt")}: ${expiresAt}\n` +
-        `${t(language, "cabinetPromoActivations")}: ${subscription.promoActivations}`,
-      cabinetKeyboard(language)
+      summaryHtml,
+      cabinetKeyboard(language),
+      "HTML"
     );
     return c.json({ ok: true });
   }

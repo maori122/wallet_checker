@@ -51,6 +51,7 @@ function formatIsoForLanguage(value: string, language: Language): string {
     return value;
   }
   return new Intl.DateTimeFormat(language === "ru" ? "ru-RU" : "en-US", {
+    timeZone: "Europe/Moscow",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
