@@ -96,6 +96,13 @@ export type TransferHistoryItem = {
   createdAt: string;
 };
 
+export type SubscriptionInfo = {
+  planCode: string;
+  status: "inactive" | "active";
+  expiresAt: string | null;
+  promoActivations: number;
+};
+
 async function ensureUserRow(env: Env, userId: string): Promise<void> {
   await env.DB.prepare(
     "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO NOTHING"
@@ -159,6 +166,17 @@ export async function upsertUserProfile(
       payload.username?.trim() ? payload.username.trim() : null,
       payload.displayName?.trim() ? payload.displayName.trim() : null
     )
+    .run();
+}
+
+async function ensureSubscriptionRow(env: Env, userId: string): Promise<void> {
+  await ensureUserRow(env, userId);
+  await env.DB.prepare(
+    `INSERT INTO user_subscriptions (user_id, plan_code, status, expires_at, updated_at)
+     VALUES (?, 'free', 'inactive', NULL, CURRENT_TIMESTAMP)
+     ON CONFLICT(user_id) DO NOTHING`
+  )
+    .bind(userId)
     .run();
 }
 
@@ -733,6 +751,116 @@ export async function listTransferHistory(
     amount: row.amount_text,
     createdAt: row.created_at
   }));
+}
+
+export async function getSubscriptionInfo(env: Env, userId: string): Promise<SubscriptionInfo> {
+  await ensureSubscriptionRow(env, userId);
+  const [row, promoCountRow] = await Promise.all([
+    env.DB.prepare(
+      `SELECT plan_code, status, expires_at
+       FROM user_subscriptions
+       WHERE user_id = ?`
+    )
+      .bind(userId)
+      .first<{
+        plan_code: string;
+        status: "inactive" | "active";
+        expires_at: string | null;
+      }>(),
+    env.DB.prepare(
+      "SELECT COUNT(1) AS count FROM promo_code_activations WHERE user_id = ?"
+    )
+      .bind(userId)
+      .first<{ count: number }>()
+  ]);
+
+  return {
+    planCode: row?.plan_code ?? "free",
+    status: row?.status ?? "inactive",
+    expiresAt: row?.expires_at ?? null,
+    promoActivations: promoCountRow?.count ?? 0
+  };
+}
+
+export async function activatePromoCode(
+  env: Env,
+  userId: string,
+  rawCode: string
+): Promise<SubscriptionInfo> {
+  await ensureSubscriptionRow(env, userId);
+  const code = rawCode.trim().toUpperCase();
+  if (!code) {
+    throw new Error("PROMO_CODE_EMPTY");
+  }
+
+  const promo = await env.DB.prepare(
+    `SELECT id, duration_days, max_activations, activations_count, is_active
+     FROM promo_codes
+     WHERE code = ?
+     LIMIT 1`
+  )
+    .bind(code)
+    .first<{
+      id: string;
+      duration_days: number;
+      max_activations: number | null;
+      activations_count: number;
+      is_active: number;
+    }>();
+
+  if (!promo || promo.is_active !== 1) {
+    throw new Error("PROMO_CODE_INVALID");
+  }
+  if (promo.max_activations !== null && promo.activations_count >= promo.max_activations) {
+    throw new Error("PROMO_CODE_EXHAUSTED");
+  }
+
+  const alreadyUsed = await env.DB.prepare(
+    "SELECT id FROM promo_code_activations WHERE promo_code_id = ? AND user_id = ? LIMIT 1"
+  )
+    .bind(promo.id, userId)
+    .first<{ id: string }>();
+  if (alreadyUsed?.id) {
+    throw new Error("PROMO_CODE_ALREADY_USED");
+  }
+
+  const current = await getSubscriptionInfo(env, userId);
+  const nowMs = Date.now();
+  const currentExpiresMs = current.expiresAt ? Date.parse(current.expiresAt) : Number.NaN;
+  const baseMs = Number.isFinite(currentExpiresMs) && currentExpiresMs > nowMs ? currentExpiresMs : nowMs;
+  const nextExpiresAt = new Date(baseMs + promo.duration_days * 24 * 60 * 60 * 1000).toISOString();
+
+  await env.DB.prepare(
+    `UPDATE user_subscriptions
+     SET plan_code = 'promo',
+         status = 'active',
+         expires_at = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?`
+  )
+    .bind(nextExpiresAt, userId)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO promo_code_activations (
+      id,
+      promo_code_id,
+      user_id,
+      code,
+      duration_days,
+      activated_at
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+  )
+    .bind(promo.id, userId, code, promo.duration_days)
+    .run();
+
+  await env.DB.prepare(
+    "UPDATE promo_codes SET activations_count = activations_count + 1 WHERE id = ?"
+  )
+    .bind(promo.id)
+    .run();
+
+  return getSubscriptionInfo(env, userId);
 }
 
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {

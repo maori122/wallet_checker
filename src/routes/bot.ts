@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types/env";
 import {
+  activatePromoCode,
   addStoppedWallet,
   clearBotSession,
   createContact,
@@ -8,6 +9,7 @@ import {
   deleteContact,
   deleteWallet,
   getBotSession,
+  getSubscriptionInfo,
   getUserReputation,
   getSettings,
   listLinkAuditEntries,
@@ -92,6 +94,19 @@ const I18N = {
     walletBalanceError: "Не удалось получить баланс. Попробуйте позже.",
     transferHistoryEmpty: "История переводов пока пуста.",
     transferHistoryTitle: "История переводов",
+    cabinetTitle: "Личный кабинет",
+    cabinetPlan: "Тариф",
+    cabinetStatus: "Статус",
+    cabinetExpiresAt: "Действует до",
+    cabinetPromoActivations: "Активировано промокодов",
+    cabinetStatusActive: "активна",
+    cabinetStatusInactive: "не активна",
+    askPromoCode: "Введите промокод.",
+    promoActivated: "Промокод активирован.",
+    promoInvalid: "Промокод не найден или не активен.",
+    promoAlreadyUsed: "Вы уже активировали этот промокод.",
+    promoExhausted: "Лимит активаций промокода исчерпан.",
+    promoEmpty: "Введите непустой промокод.",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -115,6 +130,7 @@ const I18N = {
     btnWallets: "Мои кошельки",
     btnContacts: "Знакомые кошельки",
     btnSettings: "Настройки",
+    btnCabinet: "Личный кабинет",
     btnReputation: "Моя репутация",
     btnList: "Список",
     btnAdd: "Добавить",
@@ -137,6 +153,7 @@ const I18N = {
     btnAdminResetReputation: "Обнулить репутацию",
     btnAdminStopWallets: "Стоп-кошельки",
     btnAdminLinks: "Логи ссылок",
+    btnActivatePromo: "Активировать промокод",
     askBtc: "Введите порог BTC (например, 0.001).",
     askEth: "Введите порог ETH (например, 0.01).",
     askUsdt: "Введите порог USDT (например, 50).",
@@ -178,6 +195,19 @@ const I18N = {
     walletBalanceError: "Unable to fetch balance. Please try again later.",
     transferHistoryEmpty: "Transfer history is empty.",
     transferHistoryTitle: "Transfer history",
+    cabinetTitle: "Account",
+    cabinetPlan: "Plan",
+    cabinetStatus: "Status",
+    cabinetExpiresAt: "Valid until",
+    cabinetPromoActivations: "Promo codes activated",
+    cabinetStatusActive: "active",
+    cabinetStatusInactive: "inactive",
+    askPromoCode: "Send promo code.",
+    promoActivated: "Promo code activated.",
+    promoInvalid: "Promo code was not found or is inactive.",
+    promoAlreadyUsed: "You have already used this promo code.",
+    promoExhausted: "Promo code activation limit has been reached.",
+    promoEmpty: "Please send a non-empty promo code.",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
@@ -201,6 +231,7 @@ const I18N = {
     btnWallets: "My wallets",
     btnContacts: "Known wallets",
     btnSettings: "Settings",
+    btnCabinet: "Account",
     btnReputation: "My reputation",
     btnList: "List",
     btnAdd: "Add",
@@ -223,6 +254,7 @@ const I18N = {
     btnAdminResetReputation: "Reset reputation",
     btnAdminStopWallets: "Stop wallets",
     btnAdminLinks: "Links log",
+    btnActivatePromo: "Activate promo code",
     askBtc: "Enter BTC threshold (example: 0.001).",
     askEth: "Enter ETH threshold (example: 0.01).",
     askUsdt: "Enter USDT threshold (example: 50).",
@@ -325,6 +357,17 @@ async function sendPagedList(params: {
   }
 }
 
+function formatDateForLanguage(value: string | null, language: Language): string {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US");
+}
+
 function currentSection(session: BotSession | null): "wallets" | "contacts" | null {
   if (!session?.flow.startsWith("section:")) {
     return null;
@@ -349,13 +392,21 @@ function isAdminUser(env: Env, userId: string): boolean {
 function mainKeyboard(language: Language, isAdmin = false): ReplyMarkup {
   const keyboard: string[][] = [
     [t(language, "btnWallets"), t(language, "btnContacts")],
-    [t(language, "btnSettings"), t(language, "btnReputation")]
+    [t(language, "btnSettings"), t(language, "btnReputation")],
+    [t(language, "btnCabinet")]
   ];
   if (isAdmin) {
     keyboard.push([t(language, "btnAdminPanel")]);
   }
   return {
     keyboard,
+    resize_keyboard: true
+  };
+}
+
+function cabinetKeyboard(language: Language): ReplyMarkup {
+  return {
+    keyboard: [[t(language, "btnActivatePromo")], [t(language, "btnMainMenu")]],
     resize_keyboard: true
   };
 }
@@ -766,6 +817,44 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  if (session?.flow === "cabinet:promo:code") {
+    try {
+      if (!text.trim()) {
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "promoEmpty"), cabinetKeyboard(language));
+        return c.json({ ok: true });
+      }
+      const subscription = await activatePromoCode(c.env, userId, text);
+      await clearBotSession(c.env, userId);
+      const statusLabel =
+        subscription.status === "active"
+          ? t(language, "cabinetStatusActive")
+          : t(language, "cabinetStatusInactive");
+      const expiresAt = formatDateForLanguage(subscription.expiresAt, language);
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `${t(language, "promoActivated")}\n\n${t(language, "cabinetTitle")}\n` +
+          `${t(language, "cabinetPlan")}: ${subscription.planCode}\n` +
+          `${t(language, "cabinetStatus")}: ${statusLabel}\n` +
+          `${t(language, "cabinetExpiresAt")}: ${expiresAt}\n` +
+          `${t(language, "cabinetPromoActivations")}: ${subscription.promoActivations}`,
+        cabinetKeyboard(language)
+      );
+    } catch (error) {
+      const code = (error as Error).message;
+      const errorText =
+        code === "PROMO_CODE_ALREADY_USED"
+          ? t(language, "promoAlreadyUsed")
+          : code === "PROMO_CODE_EXHAUSTED"
+            ? t(language, "promoExhausted")
+            : code === "PROMO_CODE_EMPTY"
+              ? t(language, "promoEmpty")
+              : t(language, "promoInvalid");
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, errorText, cabinetKeyboard(language));
+    }
+    return c.json({ ok: true });
+  }
+
   if (session?.flow === "admin:reputation:reset:user" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
@@ -945,6 +1034,27 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  if (isBtn(text, "btnCabinet")) {
+    await clearBotSession(c.env, userId);
+    const subscription = await getSubscriptionInfo(c.env, userId);
+    const statusLabel =
+      subscription.status === "active"
+        ? t(language, "cabinetStatusActive")
+        : t(language, "cabinetStatusInactive");
+    const expiresAt = formatDateForLanguage(subscription.expiresAt, language);
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      `${t(language, "cabinetTitle")}\n` +
+        `${t(language, "cabinetPlan")}: ${subscription.planCode}\n` +
+        `${t(language, "cabinetStatus")}: ${statusLabel}\n` +
+        `${t(language, "cabinetExpiresAt")}: ${expiresAt}\n` +
+        `${t(language, "cabinetPromoActivations")}: ${subscription.promoActivations}`,
+      cabinetKeyboard(language)
+    );
+    return c.json({ ok: true });
+  }
+
   if (isBtn(text, "btnReputation")) {
     const score = await getUserReputation(c.env, userId);
     await clearBotSession(c.env, userId);
@@ -964,6 +1074,12 @@ bot.post("/telegram", async (c) => {
     }
     await setBotSession(c.env, userId, { flow: "section:admin" });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPanelTitle"), adminKeyboard(language));
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnActivatePromo")) {
+    await setBotSession(c.env, userId, { flow: "cabinet:promo:code" });
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askPromoCode"), cabinetKeyboard(language));
     return c.json({ ok: true });
   }
 
