@@ -68,7 +68,7 @@ const I18N = {
     greet: "VOROBEY: Check готов. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
     unknown: "Не понял сообщение. Выберите действие кнопкой меню.",
     mainMenu: "Главное меню",
-    walletsTitle: "Отлеживаемое",
+    walletsTitle: "👁️ Отслеживаемые",
     contactsTitle: "Знакомые кошельки",
     settingsTitle: "Настройки",
     askWalletNetwork: "Выберите сеть для кошелька.",
@@ -98,6 +98,7 @@ const I18N = {
     testNotification: "Тестовое уведомление: бот подключен.",
     walletBalancesPick: "Выберите номер кошелька для просмотра баланса.",
     walletBalanceError: "Не удалось получить баланс. Попробуйте позже.",
+    walletBalanceCachedAt: "⚠️ Временно показываю последний доступный баланс на {date}.",
     transferHistoryEmpty: "История переводов пока пуста.",
     transferHistoryTitle: "История переводов",
     transferRatePick: "Выберите номер перевода для оценки кошелька контрагента.",
@@ -137,7 +138,7 @@ const I18N = {
     adminStopPickNetwork: "Адрес подходит под несколько сетей. Выберите сеть для стоп-листа.",
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
-    btnWallets: "👛 Отлеживаемое",
+    btnWallets: "👁️ Отслеживаемые",
     btnContacts: "👥 Знакомые кошельки",
     btnSettings: "⚙️ Настройки",
     btnCabinet: "🪪 Личный кабинет",
@@ -210,6 +211,7 @@ const I18N = {
     testNotification: "Test notification: bot is connected.",
     walletBalancesPick: "Send wallet number to view balance.",
     walletBalanceError: "Unable to fetch balance. Please try again later.",
+    walletBalanceCachedAt: "⚠️ Showing the last available balance from {date}.",
     transferHistoryEmpty: "Transfer history is empty.",
     transferHistoryTitle: "Transfer history",
     transferRatePick: "Choose transfer number to rate counterparty wallet.",
@@ -814,16 +816,23 @@ bot.post("/telegram", async (c) => {
     }
 
     try {
-      const balances = await getWalletBalances(c.env, wallet);
-      const body = balances.length
-        ? balances.map((item) => `• ${item.asset}: ${item.amount}`).join("\n")
+      const balanceResult = await getWalletBalances(c.env, wallet);
+      const body = balanceResult.entries.length
+        ? balanceResult.entries.map((item) => `• ${item.asset}: ${item.amount}`).join("\n")
         : language === "ru"
           ? "Нет доступных активов для отображения."
           : "No assets are enabled for this wallet.";
+      const cacheNotice =
+        balanceResult.source === "cache"
+          ? `\n\n${t(language, "walletBalanceCachedAt").replace(
+              "{date}",
+              formatDateForLanguage(balanceResult.fetchedAt, language)
+            )}`
+          : "";
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        `[${formatNetwork(wallet.network)}] ${maskAddress(wallet.address)}\n${body}`,
+        `[${formatNetwork(wallet.network)}] ${maskAddress(wallet.address)}\n${body}${cacheNotice}`,
         sectionKeyboard(language)
       );
     } catch {
