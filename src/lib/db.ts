@@ -114,6 +114,64 @@ export type WalletReputationEntry = {
   updatedAt: string;
 };
 
+function formatTrackedNetwork(network: "btc" | "eth" | "bsc" | "trc20"): "BTC" | "ETH" | "BEP20" | "TRC20" {
+  if (network === "bsc") {
+    return "BEP20";
+  }
+  return network.toUpperCase() as "BTC" | "ETH" | "TRC20";
+}
+
+function shortTrackedAddress(address: string): string {
+  if (address.length <= 14) {
+    return address;
+  }
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
+}
+
+async function mirrorWalletToContacts(
+  env: Env,
+  userId: string,
+  network: "btc" | "eth" | "bsc" | "trc20",
+  normalizedAddress: string
+): Promise<void> {
+  const hashed = await addressHash(normalizedAddress.toLowerCase());
+  const existing = await env.DB.prepare("SELECT id FROM contacts WHERE user_id = ? AND network = ? AND address_hash = ? LIMIT 1")
+    .bind(userId, network, hashed)
+    .first<{ id: string }>();
+  if (existing?.id) {
+    return;
+  }
+
+  const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
+    .bind(userId)
+    .first<{ count: number }>();
+  if ((countRow?.count ?? 0) >= MAX_CONTACTS) {
+    return;
+  }
+
+  const autoLabel = `Tracked ${formatTrackedNetwork(network)} ${shortTrackedAddress(normalizedAddress)}`;
+  const addressCiphertext = await encryptForUser(normalizedAddress, userId, env.ENCRYPTION_MASTER_KEY);
+  const labelCiphertext = await encryptForUser(autoLabel, userId, env.ENCRYPTION_MASTER_KEY);
+  try {
+    await env.DB.prepare(
+      `INSERT INTO contacts (
+        id,
+        user_id,
+        network,
+        address_ciphertext,
+        address_hash,
+        label_ciphertext,
+        created_at,
+        updated_at
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    )
+      .bind(userId, network, addressCiphertext, hashed, labelCiphertext)
+      .run();
+  } catch {
+    // Best-effort mirror. Wallet creation should not fail due to contact sync.
+  }
+}
+
 async function ensureUserRow(env: Env, userId: string): Promise<void> {
   await env.DB.prepare(
     "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO NOTHING"
@@ -373,6 +431,7 @@ export async function createWallet(
     network: payload.network,
     address: normalized
   });
+  await mirrorWalletToContacts(env, userId, payload.network, normalized);
   await upsertWalletReputationTarget(env, payload.network, normalized);
   await incrementUserReputation(env, userId, 1);
 }
