@@ -1444,6 +1444,21 @@ export async function listPromoCodeEntries(env: Env, limit = 50): Promise<PromoC
   }));
 }
 
+export async function setPromoCodeActiveState(
+  env: Env,
+  promoId: string,
+  isActive: boolean
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `UPDATE promo_codes
+     SET is_active = ?
+     WHERE id = ?`
+  )
+    .bind(isActive ? 1 : 0, promoId)
+    .run();
+  return result.meta.changes > 0;
+}
+
 export async function activatePromoCode(
   env: Env,
   userId: string,

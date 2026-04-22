@@ -147,7 +147,18 @@ function pageHtml(): string {
           </div>
         </div>
         <div class="card"><h3>Promo codes</h3><div id="admin-promo-list"></div></div>
-        <div class="card"><h3>Stop wallets</h3><div id="admin-stop-list"></div></div>
+        <div class="card">
+          <h3>Stop wallets</h3>
+          <div class="grid">
+            <div class="row"><label>Network</label><select id="admin-stop-network"><option value="btc">BTC</option><option value="eth">ETH</option><option value="bsc">BEP20</option><option value="trc20">TRC20</option></select></div>
+            <div class="row"><label>Address</label><input id="admin-stop-address" placeholder="Address" /></div>
+            <div class="btns">
+              <button class="btn primary" id="admin-stop-add">Add to stop list</button>
+              <button class="btn bad" id="admin-stop-remove-btn">Remove from stop list</button>
+            </div>
+          </div>
+          <div id="admin-stop-list"></div>
+        </div>
         <div class="card"><h3>Link audit</h3><div id="admin-link-list"></div></div>
         <div class="card"><h3>Wallet reputation</h3><div id="admin-reputation-list"></div></div>
       </section>
@@ -357,11 +368,30 @@ function pageHtml(): string {
               p.activationsCount +
               " / " +
               (p.maxActivations ?? "∞") +
-              "</div>"
+              "</div><div class='btns'><button class='btn ghost' data-promo-toggle='" +
+              p.id +
+              "' data-next-active='" +
+              (p.isActive ? "0" : "1") +
+              "'>" +
+              (p.isActive ? "Disable" : "Enable") +
+              "</button></div>"
           );
         });
         clearNode("admin-stop-list");
-        (stop.items || []).forEach((s) => append("admin-stop-list", "<div>[" + String(s.network).toUpperCase() + "] <span class='mono'>" + s.address + "</span></div>"));
+        (stop.items || []).forEach((s) =>
+          append(
+            "admin-stop-list",
+            "<div>[" +
+              String(s.network).toUpperCase() +
+              "] <span class='mono'>" +
+              s.address +
+              "</span></div><div class='btns'><button class='btn bad' data-stop-remove='" +
+              s.network +
+              "' data-stop-address='" +
+              s.address +
+              "'>Remove</button></div>"
+          )
+        );
         if (!(stop.items || []).length) append("admin-stop-list", '<div class="muted">No stop wallets.</div>');
         clearNode("admin-link-list");
         (links.items || []).forEach((it) =>
@@ -475,6 +505,30 @@ function pageHtml(): string {
         } catch (e) { toast(e.message || "Error", true); }
       });
 
+      $("admin-stop-add").addEventListener("click", async () => {
+        try {
+          await api("/admin/stopped-wallets", "POST", {
+            network: $("admin-stop-network").value,
+            address: $("admin-stop-address").value.trim()
+          });
+          $("admin-stop-address").value = "";
+          toast("Added to stop list.");
+          await loadAdmin();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("admin-stop-remove-btn").addEventListener("click", async () => {
+        try {
+          await api("/admin/stopped-wallets", "DELETE", {
+            network: $("admin-stop-network").value,
+            address: $("admin-stop-address").value.trim()
+          });
+          $("admin-stop-address").value = "";
+          toast("Removed from stop list.");
+          await loadAdmin();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
       document.body.addEventListener("click", async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
@@ -505,6 +559,29 @@ function pageHtml(): string {
             const lines = (data.balance?.entries || []).map((x) => "• " + x.asset + ": " + x.amount).join("<br/>");
             const source = data.balance?.source === "cache" ? " (cache)" : "";
             $("bal-" + walletId).innerHTML = lines + source;
+          } catch (e) { toast(e.message || "Error", true); }
+          return;
+        }
+        const promoId = target.dataset.promoToggle;
+        if (promoId) {
+          try {
+            await api("/admin/promo-codes/" + promoId, "PATCH", {
+              isActive: target.dataset.nextActive === "1"
+            });
+            toast("Promo state updated.");
+            await loadAdmin();
+          } catch (e) { toast(e.message || "Error", true); }
+          return;
+        }
+        const stopNetwork = target.dataset.stopRemove;
+        if (stopNetwork) {
+          try {
+            await api("/admin/stopped-wallets", "DELETE", {
+              network: stopNetwork,
+              address: target.dataset.stopAddress || ""
+            });
+            toast("Removed from stop list.");
+            await loadAdmin();
           } catch (e) { toast(e.message || "Error", true); }
         }
       });

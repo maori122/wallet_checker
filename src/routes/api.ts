@@ -23,6 +23,7 @@ import {
   listTransferHistory,
   listWallets,
   removeStoppedWallet,
+  setPromoCodeActiveState,
   updateContactLabel,
   updateSettings
 } from "../lib/db";
@@ -296,6 +297,22 @@ api.post("/admin/promo-codes", async (c) => {
       isActive: body.isActive ?? true
     });
     return c.json({ item }, 201);
+  } catch (error) {
+    return c.json({ error: mapApiError(error) }, 400);
+  }
+});
+
+api.patch("/admin/promo-codes/:id", async (c) => {
+  try {
+    requireAdmin(c.env, getUserId(c));
+    const body = parseBody(
+      z.object({
+        isActive: z.boolean()
+      }),
+      await c.req.json()
+    );
+    const updated = await setPromoCodeActiveState(c.env, c.req.param("id"), body.isActive);
+    return c.json({ ok: updated }, updated ? 200 : 404);
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 400);
   }
