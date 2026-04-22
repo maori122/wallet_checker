@@ -89,9 +89,11 @@ export type TransferHistoryItem = {
   id: string;
   walletId: string;
   network: "btc" | "eth" | "bsc" | "trc20";
+  direction: "incoming" | "outgoing";
   asset: "BTC" | "ETH" | "USDT";
   txid: string;
   fromAddress: string | null;
+  counterpartyAddress: string | null;
   amount: string;
   createdAt: string;
 };
@@ -677,7 +679,7 @@ export async function rateTransferCounterparty(
   await ensureUserRow(env, voterUserId);
 
   const transfer = await env.DB.prepare(
-    `SELECT network, from_address
+    `SELECT network, counterparty_address
      FROM transfer_history
      WHERE id = ? AND user_id = ?
      LIMIT 1`
@@ -685,15 +687,15 @@ export async function rateTransferCounterparty(
     .bind(transferId, voterUserId)
     .first<{
       network: "btc" | "eth" | "bsc" | "trc20";
-      from_address: string | null;
+      counterparty_address: string | null;
     }>();
 
-  if (!transfer?.from_address) {
+  if (!transfer?.counterparty_address) {
     throw new Error("TRANSFER_COUNTERPARTY_NOT_FOUND");
   }
 
   const network = transfer.network;
-  const counterparty = normalizeAddress(network, transfer.from_address);
+  const counterparty = normalizeAddress(network, transfer.counterparty_address);
   const hashed = await addressHash(counterparty.toLowerCase());
 
   await upsertWalletReputationTarget(env, network, counterparty);
@@ -883,9 +885,11 @@ export async function appendTransferHistory(
     userId: string;
     walletId: string;
     network: "btc" | "eth" | "bsc" | "trc20";
+    direction: "incoming" | "outgoing";
     asset: "BTC" | "ETH" | "USDT";
     txid: string;
     fromAddress: string | null;
+    counterpartyAddress: string | null;
     amount: string;
   }
 ): Promise<void> {
@@ -895,21 +899,25 @@ export async function appendTransferHistory(
       user_id,
       wallet_id,
       network,
+      direction,
       asset,
       txid,
       from_address,
+      counterparty_address,
       amount_text,
       created_at
-    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(user_id, wallet_id, txid, asset, network) DO NOTHING`
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id, wallet_id, txid, asset, network, direction) DO NOTHING`
   )
     .bind(
       payload.userId,
       payload.walletId,
       payload.network,
+      payload.direction,
       payload.asset,
       payload.txid,
       payload.fromAddress,
+      payload.counterpartyAddress,
       payload.amount
     )
     .run();
@@ -922,7 +930,7 @@ export async function listTransferHistory(
 ): Promise<TransferHistoryItem[]> {
   const safeLimit = Math.max(1, Math.min(limit, 200));
   const result = await env.DB.prepare(
-    `SELECT id, wallet_id, network, asset, txid, from_address, amount_text, created_at
+    `SELECT id, wallet_id, network, direction, asset, txid, from_address, counterparty_address, amount_text, created_at
      FROM transfer_history
      WHERE user_id = ?
      ORDER BY created_at DESC
@@ -933,9 +941,11 @@ export async function listTransferHistory(
       id: string;
       wallet_id: string;
       network: "btc" | "eth" | "bsc" | "trc20";
+      direction: "incoming" | "outgoing";
       asset: "BTC" | "ETH" | "USDT";
       txid: string;
       from_address: string | null;
+      counterparty_address: string | null;
       amount_text: string;
       created_at: string;
     }>();
@@ -944,9 +954,11 @@ export async function listTransferHistory(
     id: row.id,
     walletId: row.wallet_id,
     network: row.network,
+    direction: row.direction,
     asset: row.asset,
     txid: row.txid,
     fromAddress: row.from_address,
+    counterpartyAddress: row.counterparty_address,
     amount: row.amount_text,
     createdAt: row.created_at
   }));

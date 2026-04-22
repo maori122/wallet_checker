@@ -18,9 +18,11 @@ const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 type Asset = "BTC" | "ETH" | "USDT";
 type Network = "btc" | "eth" | "bsc" | "trc20";
 
-type IncomingEvent = {
+type TransferEvent = {
   txid: string;
   from: string | null;
+  to: string | null;
+  direction: "incoming" | "outgoing";
   amount: number;
   asset: Asset;
   network: Network;
@@ -67,7 +69,7 @@ async function fetchJson<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function fetchBtcIncoming(address: string): Promise<IncomingEvent[]> {
+async function fetchBtcTransfers(address: string): Promise<TransferEvent[]> {
   type BlockstreamTx = {
     txid: string;
     vin: Array<{ prevout?: { scriptpubkey_address?: string } }>;
@@ -78,30 +80,53 @@ async function fetchBtcIncoming(address: string): Promise<IncomingEvent[]> {
   );
 
   const normalizedAddress = address.toLowerCase();
-  const items: IncomingEvent[] = [];
+  const items: TransferEvent[] = [];
   for (const row of rows) {
-    let sats = 0;
+    let incomingSats = 0;
+    let outgoingSats = 0;
+    let outgoingTo: string | null = null;
+    const sentFromWallet = row.vin.some(
+      (input) => input.prevout?.scriptpubkey_address?.toLowerCase() === normalizedAddress
+    );
+
     for (const output of row.vout) {
       if (output.scriptpubkey_address?.toLowerCase() === normalizedAddress) {
-        sats += output.value;
+        incomingSats += output.value;
+      } else if (sentFromWallet) {
+        outgoingSats += output.value;
+        if (!outgoingTo && output.scriptpubkey_address) {
+          outgoingTo = output.scriptpubkey_address;
+        }
       }
     }
-    if (sats <= 0) {
-      continue;
+    if (incomingSats > 0) {
+      const from = row.vin[0]?.prevout?.scriptpubkey_address ?? null;
+      items.push({
+        txid: row.txid,
+        from,
+        to: address,
+        direction: "incoming",
+        amount: incomingSats / 100_000_000,
+        asset: "BTC",
+        network: "btc"
+      });
     }
-    const from = row.vin[0]?.prevout?.scriptpubkey_address ?? null;
-    items.push({
-      txid: row.txid,
-      from,
-      amount: sats / 100_000_000,
-      asset: "BTC",
-      network: "btc"
-    });
+    if (outgoingSats > 0) {
+      items.push({
+        txid: row.txid,
+        from: address,
+        to: outgoingTo,
+        direction: "outgoing",
+        amount: outgoingSats / 100_000_000,
+        asset: "BTC",
+        network: "btc"
+      });
+    }
   }
   return items;
 }
 
-async function fetchEthIncoming(address: string, apiKey: string): Promise<IncomingEvent[]> {
+async function fetchEthTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type EtherscanResponse = {
     status: string;
     result: Array<{
@@ -116,13 +141,15 @@ async function fetchEthIncoming(address: string, apiKey: string): Promise<Incomi
     `${ETHERSCAN_BASE}?module=account&action=txlist&address=${encodeURIComponent(address)}&page=1&offset=30&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   const normalized = address.toLowerCase();
-  const items: IncomingEvent[] = [];
+  const items: TransferEvent[] = [];
 
   for (const row of response.result ?? []) {
     if (row.isError !== "0") {
       continue;
     }
-    if ((row.to ?? "").toLowerCase() !== normalized) {
+    const toMatches = (row.to ?? "").toLowerCase() === normalized;
+    const fromMatches = (row.from ?? "").toLowerCase() === normalized;
+    if (!toMatches && !fromMatches) {
       continue;
     }
     const valueWei = BigInt(row.value);
@@ -132,6 +159,8 @@ async function fetchEthIncoming(address: string, apiKey: string): Promise<Incomi
     items.push({
       txid: row.hash,
       from: row.from ?? null,
+      to: row.to ?? null,
+      direction: toMatches ? "incoming" : "outgoing",
       amount: Number(formatUnits(valueWei, 18)),
       asset: "ETH",
       network: "eth"
@@ -140,7 +169,7 @@ async function fetchEthIncoming(address: string, apiKey: string): Promise<Incomi
   return items;
 }
 
-async function fetchUsdtIncoming(address: string, apiKey: string): Promise<IncomingEvent[]> {
+async function fetchUsdtTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type EtherscanTokenResponse = {
     status: string;
     result: Array<{
@@ -156,10 +185,12 @@ async function fetchUsdtIncoming(address: string, apiKey: string): Promise<Incom
     `${ETHERSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_ETH_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   const normalized = address.toLowerCase();
-  const items: IncomingEvent[] = [];
+  const items: TransferEvent[] = [];
 
   for (const row of response.result ?? []) {
-    if ((row.to ?? "").toLowerCase() !== normalized) {
+    const toMatches = (row.to ?? "").toLowerCase() === normalized;
+    const fromMatches = (row.from ?? "").toLowerCase() === normalized;
+    if (!toMatches && !fromMatches) {
       continue;
     }
     if ((row.contractAddress ?? "").toLowerCase() !== USDT_ETH_CONTRACT.toLowerCase()) {
@@ -173,6 +204,8 @@ async function fetchUsdtIncoming(address: string, apiKey: string): Promise<Incom
     items.push({
       txid: row.hash,
       from: row.from ?? null,
+      to: row.to ?? null,
+      direction: toMatches ? "incoming" : "outgoing",
       amount: Number(formatUnits(value, decimals)),
       asset: "USDT",
       network: "eth"
@@ -181,7 +214,7 @@ async function fetchUsdtIncoming(address: string, apiKey: string): Promise<Incom
   return items;
 }
 
-async function fetchUsdtBscIncoming(address: string, apiKey: string): Promise<IncomingEvent[]> {
+async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type BscscanTokenResponse = {
     status: string;
     result: Array<{
@@ -197,10 +230,12 @@ async function fetchUsdtBscIncoming(address: string, apiKey: string): Promise<In
     `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   const normalized = address.toLowerCase();
-  const items: IncomingEvent[] = [];
+  const items: TransferEvent[] = [];
 
   for (const row of response.result ?? []) {
-    if ((row.to ?? "").toLowerCase() !== normalized) {
+    const toMatches = (row.to ?? "").toLowerCase() === normalized;
+    const fromMatches = (row.from ?? "").toLowerCase() === normalized;
+    if (!toMatches && !fromMatches) {
       continue;
     }
     if ((row.contractAddress ?? "").toLowerCase() !== USDT_BSC_CONTRACT.toLowerCase()) {
@@ -214,6 +249,8 @@ async function fetchUsdtBscIncoming(address: string, apiKey: string): Promise<In
     items.push({
       txid: row.hash,
       from: row.from ?? null,
+      to: row.to ?? null,
+      direction: toMatches ? "incoming" : "outgoing",
       amount: Number(formatUnits(value, decimals)),
       asset: "USDT",
       network: "bsc"
@@ -222,7 +259,7 @@ async function fetchUsdtBscIncoming(address: string, apiKey: string): Promise<In
   return items;
 }
 
-async function fetchUsdtTrc20Incoming(address: string, apiKey?: string): Promise<IncomingEvent[]> {
+async function fetchUsdtTrc20Transfers(address: string, apiKey?: string): Promise<TransferEvent[]> {
   type TronGridResponse = {
     data?: Array<{
       transaction_id: string;
@@ -248,13 +285,21 @@ async function fetchUsdtTrc20Incoming(address: string, apiKey?: string): Promise
 
   const result = (await response.json()) as TronGridResponse;
   const normalizedHex = tronUtils.address.toHex(address).toLowerCase();
-  const items: IncomingEvent[] = [];
+  const items: TransferEvent[] = [];
 
   for (const row of result.data ?? []) {
-    if (!row.to || !TronWeb.isAddress(row.to)) {
+    if ((!row.to || !TronWeb.isAddress(row.to)) && (!row.from || !TronWeb.isAddress(row.from))) {
       continue;
     }
-    if (tronUtils.address.toHex(row.to).toLowerCase() !== normalizedHex) {
+    const toMatches =
+      row.to && TronWeb.isAddress(row.to)
+        ? tronUtils.address.toHex(row.to).toLowerCase() === normalizedHex
+        : false;
+    const fromMatches =
+      row.from && TronWeb.isAddress(row.from)
+        ? tronUtils.address.toHex(row.from).toLowerCase() === normalizedHex
+        : false;
+    if (!toMatches && !fromMatches) {
       continue;
     }
     if ((row.token_info?.symbol ?? "").toUpperCase() !== "USDT") {
@@ -268,6 +313,8 @@ async function fetchUsdtTrc20Incoming(address: string, apiKey?: string): Promise
     items.push({
       txid: row.transaction_id,
       from: row.from ?? null,
+      to: row.to ?? null,
+      direction: toMatches ? "incoming" : "outgoing",
       amount: Number(formatUnits(value, decimals)),
       asset: "USDT",
       network: "trc20"
@@ -346,27 +393,27 @@ function formatNotification(params: {
     .join("\n");
 }
 
-function normalizeSenderAddress(network: Network, sender: string | null): string | null {
-  if (!sender) {
+function normalizeNetworkAddress(network: Network, address: string | null): string | null {
+  if (!address) {
     return null;
   }
 
   if (network === "eth" || network === "bsc") {
-    if (!isAddress(sender)) {
+    if (!isAddress(address)) {
       return null;
     }
-    return getAddress(sender);
+    return getAddress(address);
   }
 
   if (network === "trc20") {
-    if (!TronWeb.isAddress(sender)) {
+    if (!TronWeb.isAddress(address)) {
       return null;
     }
-    const hex = tronUtils.address.toHex(sender);
+    const hex = tronUtils.address.toHex(address);
     return tronUtils.address.fromHex(hex);
   }
 
-  return sender;
+  return address;
 }
 
 export async function runWalletMonitoring(env: Env): Promise<void> {
@@ -386,30 +433,30 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
       continue;
     }
 
-    let events: IncomingEvent[] = [];
+    let events: TransferEvent[] = [];
     try {
       if (wallet.network === "btc") {
-        events = await fetchBtcIncoming(wallet.address);
+        events = await fetchBtcTransfers(wallet.address);
       } else if (wallet.network === "eth") {
-        const tasks: Promise<IncomingEvent[]>[] = [];
+        const tasks: Promise<TransferEvent[]>[] = [];
         if (wallet.monitorEthNative) {
-          tasks.push(fetchEthIncoming(wallet.address, etherscanKey));
+          tasks.push(fetchEthTransfers(wallet.address, etherscanKey));
         }
         if (wallet.monitorUsdtErc20) {
-          tasks.push(fetchUsdtIncoming(wallet.address, etherscanKey));
+          tasks.push(fetchUsdtTransfers(wallet.address, etherscanKey));
         }
         const results = await Promise.all(tasks);
         events = results.flat();
       } else {
         if (wallet.network === "bsc") {
           if (wallet.monitorUsdtBep20) {
-            events = await fetchUsdtBscIncoming(wallet.address, bscscanKey);
+            events = await fetchUsdtBscTransfers(wallet.address, bscscanKey);
           } else {
             events = [];
           }
         } else {
           if (wallet.monitorUsdtTrc20) {
-            events = await fetchUsdtTrc20Incoming(wallet.address, trongridKey);
+            events = await fetchUsdtTrc20Transfers(wallet.address, trongridKey);
           } else {
             events = [];
           }
@@ -431,13 +478,35 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         continue;
       }
 
-      const dedupKey = `${wallet.id}:${event.network}:${event.asset}:${event.txid}`;
+      const normalizedFrom = normalizeNetworkAddress(event.network, event.from);
+      const normalizedTo = normalizeNetworkAddress(event.network, event.to);
+      const counterpartyAddress =
+        event.direction === "incoming"
+          ? normalizedFrom ?? event.from
+          : normalizedTo ?? event.to;
+
+      await appendTransferHistory(env, {
+        userId: wallet.userId,
+        walletId: wallet.id,
+        network: event.network,
+        direction: event.direction,
+        asset: event.asset,
+        txid: event.txid,
+        fromAddress: normalizedFrom ?? event.from,
+        counterpartyAddress,
+        amount: toFixedTrimmed(event.amount)
+      });
+
+      if (event.direction !== "incoming") {
+        continue;
+      }
+
+      const dedupKey = `${wallet.id}:${event.direction}:${event.network}:${event.asset}:${event.txid}`;
       const reserved = await reserveNotificationDedup(env, wallet.userId, dedupKey);
       if (!reserved) {
         continue;
       }
 
-      const normalizedFrom = normalizeSenderAddress(event.network, event.from);
       if (normalizedFrom) {
         const stopped = await isStoppedWallet(env, event.network, normalizedFrom);
         if (stopped) {
@@ -461,15 +530,6 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         usdEstimate
       });
 
-      await appendTransferHistory(env, {
-        userId: wallet.userId,
-        walletId: wallet.id,
-        network: event.network,
-        asset: event.asset,
-        txid: event.txid,
-        fromAddress: normalizedFrom ?? event.from,
-        amount: toFixedTrimmed(event.amount)
-      });
       await sendTelegramMessage(env, wallet.userId, text);
     }
   }

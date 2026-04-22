@@ -96,9 +96,9 @@ const I18N = {
     walletBalanceError: "Не удалось получить баланс. Попробуйте позже.",
     transferHistoryEmpty: "История переводов пока пуста.",
     transferHistoryTitle: "История переводов",
-    transferRatePick: "Выберите номер перевода для оценки кошелька отправителя.",
-    transferRateNoSender: "Для этого перевода нет адреса отправителя, оценка недоступна.",
-    transferRateAskVote: "Поставьте оценку кошельку отправителя.",
+    transferRatePick: "Выберите номер перевода для оценки кошелька контрагента.",
+    transferRateNoSender: "Для этого перевода нет кошелька контрагента, оценка недоступна.",
+    transferRateAskVote: "Поставьте оценку кошельку контрагента.",
     transferRateDone: "Оценка сохранена.",
     cabinetTitle: "Личный кабинет",
     cabinetPlan: "Тариф",
@@ -204,9 +204,9 @@ const I18N = {
     walletBalanceError: "Unable to fetch balance. Please try again later.",
     transferHistoryEmpty: "Transfer history is empty.",
     transferHistoryTitle: "Transfer history",
-    transferRatePick: "Choose transfer number to rate sender wallet.",
-    transferRateNoSender: "This transfer has no sender address, rating is unavailable.",
-    transferRateAskVote: "Rate the sender wallet.",
+    transferRatePick: "Choose transfer number to rate counterparty wallet.",
+    transferRateNoSender: "This transfer has no counterparty wallet, rating is unavailable.",
+    transferRateAskVote: "Rate the counterparty wallet.",
     transferRateDone: "Rating saved.",
     cabinetTitle: "Account",
     cabinetPlan: "Plan",
@@ -736,7 +736,7 @@ bot.post("/telegram", async (c) => {
 
     const history = await listTransferHistory(c.env, userId, 50);
     const item = history.find((entry) => entry.id === ids[pick - 1]);
-    if (!item || !item.fromAddress) {
+    if (!item || !item.counterpartyAddress) {
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
@@ -753,7 +753,7 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "transferRateAskVote")}\n[${item.network.toUpperCase()}] ${maskAddress(item.fromAddress)}`,
+      `${t(language, "transferRateAskVote")}\n[${item.network.toUpperCase()}] ${maskAddress(item.counterpartyAddress)}`,
       voteKeyboard(language)
     );
     return c.json({ ok: true });
@@ -1256,13 +1256,14 @@ bot.post("/telegram", async (c) => {
     const lines = await Promise.all(
       history.map(async (item, index) => {
         let ratingSuffix = "";
-        if (item.fromAddress) {
-          const rep = await getWalletReputationByAddress(c.env, item.network, item.fromAddress);
+        if (item.counterpartyAddress) {
+          const rep = await getWalletReputationByAddress(c.env, item.network, item.counterpartyAddress);
           if (rep) {
             ratingSuffix = ` · ⭐ ${rep.score}`;
           }
         }
-        return `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
+        const directionMark = item.direction === "incoming" ? "⬅" : "➡";
+        return `${index + 1}. ${directionMark} [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
       })
     );
     await sendPagedList({
@@ -1283,14 +1284,14 @@ bot.post("/telegram", async (c) => {
       return c.json({ ok: true });
     }
     const history = await listTransferHistory(c.env, userId, 20);
-    const rateable = history.filter((item) => Boolean(item.fromAddress));
+    const rateable = history.filter((item) => Boolean(item.counterpartyAddress));
     if (rateable.length === 0) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferRateNoSender"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
     const lines = rateable.map(
       (item, index) =>
-        `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(item.fromAddress ?? "")}`
+        `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(item.counterpartyAddress ?? "")}`
     );
     await setBotSession(c.env, userId, { flow: "transfer:rate:pick", payload: { ids: rateable.map((item) => item.id) } });
     await sendPagedList({
