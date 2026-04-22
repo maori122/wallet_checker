@@ -501,17 +501,23 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         continue;
       }
 
+      const monitoredWalletAddress =
+        normalizeNetworkAddress(event.network, wallet.address) ?? wallet.address;
+      if (normalizedFrom) {
+        const senderStopped = await isStoppedWallet(env, event.network, normalizedFrom);
+        if (senderStopped) {
+          continue;
+        }
+      }
+      const receiverStopped = await isStoppedWallet(env, event.network, monitoredWalletAddress);
+      if (receiverStopped) {
+        continue;
+      }
+
       const dedupKey = `${wallet.id}:${event.direction}:${event.network}:${event.asset}:${event.txid}`;
       const reserved = await reserveNotificationDedup(env, wallet.userId, dedupKey);
       if (!reserved) {
         continue;
-      }
-
-      if (normalizedFrom) {
-        const stopped = await isStoppedWallet(env, event.network, normalizedFrom);
-        if (stopped) {
-          continue;
-        }
       }
       const label = normalizedFrom
         ? await resolveContactLabel(env, wallet.userId, event.network, normalizedFrom)
