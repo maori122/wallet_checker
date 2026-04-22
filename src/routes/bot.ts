@@ -302,6 +302,30 @@ function isAdminActionButton(input: string): boolean {
   );
 }
 
+function isSectionActionButton(input: string): boolean {
+  return (
+    isBtn(input, "btnList") ||
+    isBtn(input, "btnAdd") ||
+    isBtn(input, "btnDelete") ||
+    isBtn(input, "btnBalance") ||
+    isBtn(input, "btnHistory") ||
+    isBtn(input, "btnRateTransfer")
+  );
+}
+
+function inferSectionFromFlow(flow: string | undefined): "wallets" | "contacts" | null {
+  if (!flow) {
+    return null;
+  }
+  if (flow.startsWith("wallet:") || flow.startsWith("transfer:rate:")) {
+    return "wallets";
+  }
+  if (flow.startsWith("contact:")) {
+    return "contacts";
+  }
+  return null;
+}
+
 function withState(
   language: Language,
   key: "usdState" | "chainState" | "serviceState",
@@ -556,7 +580,7 @@ bot.post("/telegram", async (c) => {
   const isAdmin = isAdminUser(c.env, userId);
   let settings = await getSettings(c.env, userId);
   const language = settings.language;
-  const session = await getBotSession(c.env, userId);
+  let session = await getBotSession(c.env, userId);
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
@@ -578,6 +602,16 @@ bot.post("/telegram", async (c) => {
       mainKeyboard(language, isAdmin)
     );
     return c.json({ ok: true });
+  }
+
+  // Buttons should always switch to the requested section, even if the user
+  // is currently inside a text-input flow.
+  if (isSectionActionButton(text)) {
+    const inferred = inferSectionFromFlow(session?.flow);
+    if (inferred) {
+      session = { flow: `section:${inferred}` };
+      await setBotSession(c.env, userId, session);
+    }
   }
 
   if (session?.flow === "wallet:add:auto-address") {
