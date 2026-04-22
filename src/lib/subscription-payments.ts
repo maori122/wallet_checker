@@ -50,7 +50,14 @@ function formatIsoForLanguage(value: string, language: Language): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US");
+  return new Intl.DateTimeFormat(language === "ru" ? "ru-RU" : "en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
 }
 
 function makeAmountText(): string {
@@ -191,7 +198,15 @@ export async function createSubscriptionPaymentInvoice(
   durationDays: number;
 }> {
   const existing = await getActiveSubscriptionPaymentRequest(env, userId);
-  if (existing && Date.parse(existing.expiresAt) > Date.now()) {
+  const expectedAmount = makeAmountText();
+  const expectedAddress = network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env);
+  if (
+    existing &&
+    Date.parse(existing.expiresAt) > Date.now() &&
+    existing.network === network &&
+    existing.amountText === expectedAmount &&
+    existing.payAddress.toLowerCase() === expectedAddress.toLowerCase()
+  ) {
     return {
       id: existing.id,
       network: existing.network,
@@ -210,8 +225,8 @@ export async function createSubscriptionPaymentInvoice(
     userId,
     network,
     asset: "USDT",
-    payAddress: network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env),
-    amountText: makeAmountText(),
+    payAddress: expectedAddress,
+    amountText: expectedAmount,
     durationDays: PLAN_DURATION_DAYS,
     expiresAt
   });
