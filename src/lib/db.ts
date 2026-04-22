@@ -103,6 +103,15 @@ export type SubscriptionInfo = {
   promoActivations: number;
 };
 
+export type WalletReputationEntry = {
+  network: "btc" | "eth" | "bsc" | "trc20";
+  address: string;
+  score: number;
+  likesCount: number;
+  dislikesCount: number;
+  updatedAt: string;
+};
+
 async function ensureUserRow(env: Env, userId: string): Promise<void> {
   await env.DB.prepare(
     "INSERT INTO users (id, created_at) VALUES (?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO NOTHING"
@@ -177,6 +186,32 @@ async function ensureSubscriptionRow(env: Env, userId: string): Promise<void> {
      ON CONFLICT(user_id) DO NOTHING`
   )
     .bind(userId)
+    .run();
+}
+
+export async function upsertWalletReputationTarget(
+  env: Env,
+  network: "btc" | "eth" | "bsc" | "trc20",
+  address: string
+): Promise<void> {
+  const normalized = normalizeAddress(network, address);
+  const hashed = await addressHash(normalized.toLowerCase());
+  await env.DB.prepare(
+    `INSERT INTO wallet_reputation (
+      id,
+      network,
+      address_plaintext,
+      address_hash,
+      score,
+      likes_count,
+      dislikes_count,
+      updated_at
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, 0, 0, 0, CURRENT_TIMESTAMP)
+    ON CONFLICT(network, address_hash) DO UPDATE SET
+      address_plaintext = excluded.address_plaintext,
+      updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(network, normalized, hashed)
     .run();
 }
 
@@ -328,6 +363,7 @@ export async function createWallet(
     network: payload.network,
     address: normalized
   });
+  await upsertWalletReputationTarget(env, payload.network, normalized);
   await incrementUserReputation(env, userId, 1);
 }
 
@@ -402,6 +438,7 @@ export async function createContact(
     address: normalized,
     label: payload.label.trim()
   });
+  await upsertWalletReputationTarget(env, payload.network, normalized);
   await incrementUserReputation(env, userId, 1);
 }
 
@@ -555,6 +592,73 @@ export async function listTopReputations(env: Env, limit = 20): Promise<Reputati
   }));
 }
 
+export async function listTopWalletReputations(
+  env: Env,
+  limit = 20
+): Promise<WalletReputationEntry[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const result = await env.DB.prepare(
+    `SELECT network, address_plaintext, score, likes_count, dislikes_count, updated_at
+     FROM wallet_reputation
+     ORDER BY score DESC, likes_count DESC, updated_at DESC
+     LIMIT ?`
+  )
+    .bind(safeLimit)
+    .all<{
+      network: "btc" | "eth" | "bsc" | "trc20";
+      address_plaintext: string;
+      score: number;
+      likes_count: number;
+      dislikes_count: number;
+      updated_at: string;
+    }>();
+
+  return result.results.map((row) => ({
+    network: row.network,
+    address: row.address_plaintext,
+    score: row.score,
+    likesCount: row.likes_count,
+    dislikesCount: row.dislikes_count,
+    updatedAt: row.updated_at
+  }));
+}
+
+export async function getWalletReputationByAddress(
+  env: Env,
+  network: "btc" | "eth" | "bsc" | "trc20",
+  address: string
+): Promise<WalletReputationEntry | null> {
+  const normalized = normalizeAddress(network, address);
+  const hashed = await addressHash(normalized.toLowerCase());
+  const row = await env.DB.prepare(
+    `SELECT network, address_plaintext, score, likes_count, dislikes_count, updated_at
+     FROM wallet_reputation
+     WHERE network = ? AND address_hash = ?
+     LIMIT 1`
+  )
+    .bind(network, hashed)
+    .first<{
+      network: "btc" | "eth" | "bsc" | "trc20";
+      address_plaintext: string;
+      score: number;
+      likes_count: number;
+      dislikes_count: number;
+      updated_at: string;
+    }>();
+
+  if (!row) {
+    return null;
+  }
+  return {
+    network: row.network,
+    address: row.address_plaintext,
+    score: row.score,
+    likesCount: row.likes_count,
+    dislikesCount: row.dislikes_count,
+    updatedAt: row.updated_at
+  };
+}
+
 export async function resetUserReputation(env: Env, userId: string): Promise<void> {
   await ensureReputationRow(env, userId);
   await env.DB.prepare(
@@ -562,6 +666,101 @@ export async function resetUserReputation(env: Env, userId: string): Promise<voi
   )
     .bind(userId)
     .run();
+}
+
+export async function rateTransferCounterparty(
+  env: Env,
+  voterUserId: string,
+  transferId: string,
+  vote: -1 | 1
+): Promise<WalletReputationEntry> {
+  await ensureUserRow(env, voterUserId);
+
+  const transfer = await env.DB.prepare(
+    `SELECT network, from_address
+     FROM transfer_history
+     WHERE id = ? AND user_id = ?
+     LIMIT 1`
+  )
+    .bind(transferId, voterUserId)
+    .first<{
+      network: "btc" | "eth" | "bsc" | "trc20";
+      from_address: string | null;
+    }>();
+
+  if (!transfer?.from_address) {
+    throw new Error("TRANSFER_COUNTERPARTY_NOT_FOUND");
+  }
+
+  const network = transfer.network;
+  const counterparty = normalizeAddress(network, transfer.from_address);
+  const hashed = await addressHash(counterparty.toLowerCase());
+
+  await upsertWalletReputationTarget(env, network, counterparty);
+
+  const existingVote = await env.DB.prepare(
+    `SELECT vote
+     FROM transfer_rating_votes
+     WHERE transfer_history_id = ? AND voter_user_id = ?
+     LIMIT 1`
+  )
+    .bind(transferId, voterUserId)
+    .first<{ vote: -1 | 1 }>();
+
+  let scoreDelta = vote;
+  let likesDelta = vote === 1 ? 1 : 0;
+  let dislikesDelta = vote === -1 ? 1 : 0;
+
+  if (existingVote) {
+    if (existingVote.vote === vote) {
+      const current = await getWalletReputationByAddress(env, network, counterparty);
+      if (!current) {
+        throw new Error("REPUTATION_NOT_FOUND");
+      }
+      return current;
+    }
+    scoreDelta = vote - existingVote.vote;
+    likesDelta = (vote === 1 ? 1 : 0) - (existingVote.vote === 1 ? 1 : 0);
+    dislikesDelta = (vote === -1 ? 1 : 0) - (existingVote.vote === -1 ? 1 : 0);
+
+    await env.DB.prepare(
+      `UPDATE transfer_rating_votes
+       SET vote = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE transfer_history_id = ? AND voter_user_id = ?`
+    )
+      .bind(vote, transferId, voterUserId)
+      .run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO transfer_rating_votes (
+        id,
+        transfer_history_id,
+        voter_user_id,
+        vote,
+        created_at,
+        updated_at
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    )
+      .bind(transferId, voterUserId, vote)
+      .run();
+  }
+
+  await env.DB.prepare(
+    `UPDATE wallet_reputation
+     SET score = score + ?,
+         likes_count = likes_count + ?,
+         dislikes_count = dislikes_count + ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE network = ? AND address_hash = ?`
+  )
+    .bind(scoreDelta, likesDelta, dislikesDelta, network, hashed)
+    .run();
+
+  const updated = await getWalletReputationByAddress(env, network, counterparty);
+  if (!updated) {
+    throw new Error("REPUTATION_NOT_FOUND");
+  }
+  return updated;
 }
 
 export async function addStoppedWallet(

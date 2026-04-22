@@ -11,13 +11,15 @@ import {
   getBotSession,
   getSubscriptionInfo,
   getUserReputation,
+  getWalletReputationByAddress,
   getSettings,
   listLinkAuditEntries,
   listStoppedWallets,
-  listTopReputations,
+  listTopWalletReputations,
   listTransferHistory,
   listContacts,
   listWallets,
+  rateTransferCounterparty,
   resetUserReputation,
   removeStoppedWallet,
   setBotSession,
@@ -94,6 +96,10 @@ const I18N = {
     walletBalanceError: "Не удалось получить баланс. Попробуйте позже.",
     transferHistoryEmpty: "История переводов пока пуста.",
     transferHistoryTitle: "История переводов",
+    transferRatePick: "Выберите номер перевода для оценки кошелька отправителя.",
+    transferRateNoSender: "Для этого перевода нет адреса отправителя, оценка недоступна.",
+    transferRateAskVote: "Поставьте оценку кошельку отправителя.",
+    transferRateDone: "Оценка сохранена.",
     cabinetTitle: "Личный кабинет",
     cabinetPlan: "Тариф",
     cabinetStatus: "Статус",
@@ -137,6 +143,9 @@ const I18N = {
     btnDelete: "Удалить",
     btnBalance: "Баланс",
     btnHistory: "История",
+    btnRateTransfer: "Оценить перевод",
+    btnLike: "👍 Лайк",
+    btnDislike: "👎 Дизлайк",
     btnBack: "Назад",
     btnMainMenu: "Главное меню",
     btnLangRu: "Язык: Русский",
@@ -195,6 +204,10 @@ const I18N = {
     walletBalanceError: "Unable to fetch balance. Please try again later.",
     transferHistoryEmpty: "Transfer history is empty.",
     transferHistoryTitle: "Transfer history",
+    transferRatePick: "Choose transfer number to rate sender wallet.",
+    transferRateNoSender: "This transfer has no sender address, rating is unavailable.",
+    transferRateAskVote: "Rate the sender wallet.",
+    transferRateDone: "Rating saved.",
     cabinetTitle: "Account",
     cabinetPlan: "Plan",
     cabinetStatus: "Status",
@@ -238,6 +251,9 @@ const I18N = {
     btnDelete: "Delete",
     btnBalance: "Balance",
     btnHistory: "History",
+    btnRateTransfer: "Rate transfer",
+    btnLike: "👍 Like",
+    btnDislike: "👎 Dislike",
     btnBack: "Back",
     btnMainMenu: "Main menu",
     btnLangRu: "Язык: Русский",
@@ -411,11 +427,18 @@ function cabinetKeyboard(language: Language): ReplyMarkup {
   };
 }
 
+function voteKeyboard(language: Language): ReplyMarkup {
+  return {
+    keyboard: [[t(language, "btnLike"), t(language, "btnDislike")], [t(language, "btnBack"), t(language, "btnMainMenu")]],
+    resize_keyboard: true
+  };
+}
+
 function sectionKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
       [t(language, "btnList"), t(language, "btnAdd"), t(language, "btnDelete")],
-      [t(language, "btnBalance"), t(language, "btnHistory")],
+      [t(language, "btnBalance"), t(language, "btnHistory"), t(language, "btnRateTransfer")],
       [t(language, "btnMainMenu")]
     ],
     resize_keyboard: true
@@ -694,6 +717,72 @@ bot.post("/telegram", async (c) => {
         t(language, "walletBalanceError"),
         sectionKeyboard(language)
       );
+    }
+    return c.json({ ok: true });
+  }
+
+  if (session?.flow === "transfer:rate:pick") {
+    const ids = (session.payload?.ids as string[] | undefined) ?? [];
+    const pick = Number.parseInt(text, 10);
+    if (!Number.isInteger(pick) || pick < 1 || pick > ids.length) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "invalidNumber"),
+        sectionKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
+
+    const history = await listTransferHistory(c.env, userId, 50);
+    const item = history.find((entry) => entry.id === ids[pick - 1]);
+    if (!item || !item.fromAddress) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "transferRateNoSender"),
+        sectionKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
+
+    await setBotSession(c.env, userId, {
+      flow: "transfer:rate:vote",
+      payload: { transferId: item.id }
+    });
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      `${t(language, "transferRateAskVote")}\n[${item.network.toUpperCase()}] ${maskAddress(item.fromAddress)}`,
+      voteKeyboard(language)
+    );
+    return c.json({ ok: true });
+  }
+
+  if (session?.flow === "transfer:rate:vote") {
+    const transferId = session.payload?.transferId as string | undefined;
+    if (!transferId) {
+      await clearBotSession(c.env, userId);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin));
+      return c.json({ ok: true });
+    }
+    const vote = isBtn(text, "btnLike") ? 1 : isBtn(text, "btnDislike") ? -1 : null;
+    if (!vote) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferRateAskVote"), voteKeyboard(language));
+      return c.json({ ok: true });
+    }
+    try {
+      const updated = await rateTransferCounterparty(c.env, userId, transferId, vote);
+      await setBotSession(c.env, userId, { flow: "section:wallets" });
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `${t(language, "transferRateDone")}\n[${updated.network.toUpperCase()}] ${maskAddress(updated.address)}\n` +
+          `Score: ${updated.score} (👍 ${updated.likesCount} / 👎 ${updated.dislikesCount})`,
+        sectionKeyboard(language)
+      );
+    } catch {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferRateNoSender"), sectionKeyboard(language));
     }
     return c.json({ ok: true });
   }
@@ -1164,15 +1253,51 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferHistoryEmpty"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    const lines = history.map(
-      (item, index) =>
-        `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}`
+    const lines = await Promise.all(
+      history.map(async (item, index) => {
+        let ratingSuffix = "";
+        if (item.fromAddress) {
+          const rep = await getWalletReputationByAddress(c.env, item.network, item.fromAddress);
+          if (rep) {
+            ratingSuffix = ` · ⭐ ${rep.score}`;
+          }
+        }
+        return `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
+      })
     );
     await sendPagedList({
       token: c.env.TELEGRAM_BOT_TOKEN,
       chatId: message.chat.id,
       language,
       title: `${t(language, "transferHistoryTitle")}:`,
+      lines,
+      replyMarkup: sectionKeyboard(language)
+    });
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnRateTransfer")) {
+    const section = currentSection(session);
+    if (section !== "wallets") {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin));
+      return c.json({ ok: true });
+    }
+    const history = await listTransferHistory(c.env, userId, 20);
+    const rateable = history.filter((item) => Boolean(item.fromAddress));
+    if (rateable.length === 0) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferRateNoSender"), sectionKeyboard(language));
+      return c.json({ ok: true });
+    }
+    const lines = rateable.map(
+      (item, index) =>
+        `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(item.fromAddress ?? "")}`
+    );
+    await setBotSession(c.env, userId, { flow: "transfer:rate:pick", payload: { ids: rateable.map((item) => item.id) } });
+    await sendPagedList({
+      token: c.env.TELEGRAM_BOT_TOKEN,
+      chatId: message.chat.id,
+      language,
+      title: t(language, "transferRatePick"),
       lines,
       replyMarkup: sectionKeyboard(language)
     });
@@ -1340,18 +1465,14 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
       return c.json({ ok: true });
     }
-    const top = await listTopReputations(c.env, 20);
+    const top = await listTopWalletReputations(c.env, 20);
     if (top.length === 0) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminReputationEmpty"), adminKeyboard(language));
       return c.json({ ok: true });
     }
     const lines = top.map(
       (item, index) =>
-        `${index + 1}. ${toUserLabel({
-          userId: item.userId,
-          username: item.username,
-          displayName: item.displayName
-        })} — ${item.score}`
+        `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)} — ${item.score} (👍 ${item.likesCount} / 👎 ${item.dislikesCount})`
     );
     await sendPagedList({
       token: c.env.TELEGRAM_BOT_TOKEN,
