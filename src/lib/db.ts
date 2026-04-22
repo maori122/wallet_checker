@@ -114,6 +114,22 @@ export type WalletReputationEntry = {
   updatedAt: string;
 };
 
+export type SubscriptionPaymentRequest = {
+  id: string;
+  userId: string;
+  network: "bsc" | "trc20";
+  asset: "USDT";
+  payAddress: string;
+  amountText: string;
+  status: "pending" | "paid" | "expired";
+  durationDays: number;
+  txid: string | null;
+  createdAt: string;
+  expiresAt: string;
+  paidAt: string | null;
+  updatedAt: string;
+};
+
 function formatTrackedNetwork(network: "btc" | "eth" | "bsc" | "trc20"): "BTC" | "ETH" | "BEP20" | "TRC20" {
   if (network === "bsc") {
     return "BEP20";
@@ -1066,6 +1082,251 @@ export async function getSubscriptionInfo(env: Env, userId: string): Promise<Sub
     expiresAt: row?.expires_at ?? null,
     promoActivations: promoCountRow?.count ?? 0
   };
+}
+
+export async function createSubscriptionPaymentRequest(
+  env: Env,
+  payload: {
+    userId: string;
+    network: "bsc" | "trc20";
+    asset: "USDT";
+    payAddress: string;
+    amountText: string;
+    durationDays: number;
+    expiresAt: string;
+  }
+): Promise<SubscriptionPaymentRequest> {
+  await ensureSubscriptionRow(env, payload.userId);
+  await env.DB.prepare(
+    `INSERT INTO subscription_payments (
+      id,
+      user_id,
+      network,
+      asset,
+      pay_address,
+      amount_text,
+      status,
+      duration_days,
+      txid,
+      created_at,
+      expires_at,
+      paid_at,
+      updated_at
+    ) VALUES (
+      lower(hex(randomblob(16))),
+      ?, ?, ?, ?, ?, 'pending', ?, NULL, CURRENT_TIMESTAMP, ?, NULL, CURRENT_TIMESTAMP
+    )`
+  )
+    .bind(
+      payload.userId,
+      payload.network,
+      payload.asset,
+      payload.payAddress,
+      payload.amountText,
+      payload.durationDays,
+      payload.expiresAt
+    )
+    .run();
+
+  const created = await env.DB.prepare(
+    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+            created_at, expires_at, paid_at, updated_at
+     FROM subscription_payments
+     WHERE user_id = ? AND status = 'pending'
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(payload.userId)
+    .first<{
+      id: string;
+      user_id: string;
+      network: "bsc" | "trc20";
+      asset: "USDT";
+      pay_address: string;
+      amount_text: string;
+      status: "pending" | "paid" | "expired";
+      duration_days: number;
+      txid: string | null;
+      created_at: string;
+      expires_at: string;
+      paid_at: string | null;
+      updated_at: string;
+    }>();
+
+  if (!created) {
+    throw new Error("PAYMENT_REQUEST_CREATE_FAILED");
+  }
+  return {
+    id: created.id,
+    userId: created.user_id,
+    network: created.network,
+    asset: created.asset,
+    payAddress: created.pay_address,
+    amountText: created.amount_text,
+    status: created.status,
+    durationDays: created.duration_days,
+    txid: created.txid,
+    createdAt: created.created_at,
+    expiresAt: created.expires_at,
+    paidAt: created.paid_at,
+    updatedAt: created.updated_at
+  };
+}
+
+export async function getActiveSubscriptionPaymentRequest(
+  env: Env,
+  userId: string
+): Promise<SubscriptionPaymentRequest | null> {
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+            created_at, expires_at, paid_at, updated_at
+     FROM subscription_payments
+     WHERE user_id = ? AND status = 'pending'
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(userId)
+    .first<{
+      id: string;
+      user_id: string;
+      network: "bsc" | "trc20";
+      asset: "USDT";
+      pay_address: string;
+      amount_text: string;
+      status: "pending" | "paid" | "expired";
+      duration_days: number;
+      txid: string | null;
+      created_at: string;
+      expires_at: string;
+      paid_at: string | null;
+      updated_at: string;
+    }>();
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    userId: row.user_id,
+    network: row.network,
+    asset: row.asset,
+    payAddress: row.pay_address,
+    amountText: row.amount_text,
+    status: row.status,
+    durationDays: row.duration_days,
+    txid: row.txid,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    paidAt: row.paid_at,
+    updatedAt: row.updated_at
+  };
+}
+
+export async function listPendingSubscriptionPayments(
+  env: Env,
+  userId?: string,
+  limit = 100
+): Promise<SubscriptionPaymentRequest[]> {
+  const query =
+    typeof userId === "string"
+      ? `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+                created_at, expires_at, paid_at, updated_at
+         FROM subscription_payments
+         WHERE status = 'pending' AND user_id = ?
+         ORDER BY created_at ASC
+         LIMIT ?`
+      : `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+                created_at, expires_at, paid_at, updated_at
+         FROM subscription_payments
+         WHERE status = 'pending'
+         ORDER BY created_at ASC
+         LIMIT ?`;
+
+  const statement = env.DB.prepare(query);
+  const result = typeof userId === "string" ? statement.bind(userId, limit) : statement.bind(limit);
+  const rows = await result.all<{
+    id: string;
+    user_id: string;
+    network: "bsc" | "trc20";
+    asset: "USDT";
+    pay_address: string;
+    amount_text: string;
+    status: "pending" | "paid" | "expired";
+    duration_days: number;
+    txid: string | null;
+    created_at: string;
+    expires_at: string;
+    paid_at: string | null;
+    updated_at: string;
+  }>();
+
+  return rows.results.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    network: row.network,
+    asset: row.asset,
+    payAddress: row.pay_address,
+    amountText: row.amount_text,
+    status: row.status,
+    durationDays: row.duration_days,
+    txid: row.txid,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    paidAt: row.paid_at,
+    updatedAt: row.updated_at
+  }));
+}
+
+export async function markSubscriptionPaymentExpired(env: Env, paymentId: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE subscription_payments
+     SET status = 'expired',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'pending'`
+  )
+    .bind(paymentId)
+    .run();
+}
+
+export async function markSubscriptionPaymentPaid(
+  env: Env,
+  paymentId: string,
+  txid: string,
+  paidAt: string
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE subscription_payments
+     SET status = 'paid',
+         txid = ?,
+         paid_at = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'pending'`
+  )
+    .bind(txid, paidAt, paymentId)
+    .run();
+}
+
+export async function activatePaidSubscription(
+  env: Env,
+  userId: string,
+  durationDays: number
+): Promise<SubscriptionInfo> {
+  await ensureSubscriptionRow(env, userId);
+  const current = await getSubscriptionInfo(env, userId);
+  const nowMs = Date.now();
+  const currentExpiresMs = current.expiresAt ? Date.parse(current.expiresAt) : Number.NaN;
+  const baseMs = Number.isFinite(currentExpiresMs) && currentExpiresMs > nowMs ? currentExpiresMs : nowMs;
+  const nextExpiresAt = new Date(baseMs + durationDays * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    `UPDATE user_subscriptions
+     SET plan_code = 'paid',
+         status = 'active',
+         expires_at = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?`
+  )
+    .bind(nextExpiresAt, userId)
+    .run();
+  return getSubscriptionInfo(env, userId);
 }
 
 export async function activatePromoCode(

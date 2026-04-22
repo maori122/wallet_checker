@@ -9,6 +9,7 @@ import {
   deleteContact,
   deleteWallet,
   getBotSession,
+  getActiveSubscriptionPaymentRequest,
   getSubscriptionInfo,
   getUserReputation,
   getWalletReputationByAddress,
@@ -27,6 +28,10 @@ import {
   updateSettings
 } from "../lib/db";
 import { getWalletBalances } from "../lib/wallet-insights";
+import {
+  createSubscriptionPaymentInvoice,
+  processSubscriptionPayments
+} from "../lib/subscription-payments";
 import { detectAddressNetworks } from "../lib/validation";
 
 type Variables = {
@@ -118,6 +123,17 @@ const I18N = {
     promoAlreadyUsed: "Вы уже активировали этот промокод.",
     promoExhausted: "Лимит активаций промокода исчерпан.",
     promoEmpty: "Введите непустой промокод.",
+    paymentChooseNetwork: "Выберите сеть для оплаты подписки.",
+    paymentInvoiceTitle: "Оплата подписки",
+    paymentAmount: "Сумма",
+    paymentAddress: "Адрес",
+    paymentExpiresAt: "Действует до",
+    paymentInstruction:
+      "Оплатите ТОЧНУЮ сумму и нажмите «✅ Проверить оплату». Автопроверка также идет каждые 2 минуты.",
+    paymentCheckNoRequest: "Активного счета нет. Нажмите «💳 Оплатить подписку».",
+    paymentCheckPending: "Платеж пока не найден. Проверьте сумму/сеть и попробуйте еще раз через минуту.",
+    paymentNetworkBsc: "🟡 USDT BEP20",
+    paymentNetworkTrc20: "🔴 USDT TRC20",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -168,6 +184,8 @@ const I18N = {
     btnAdminStopWallets: "⛔ Стоп-кошельки",
     btnAdminLinks: "🔎 Логи ссылок",
     btnActivatePromo: "🎟️ Активировать промокод",
+    btnPaySubscription: "💳 Оплатить подписку",
+    btnCheckPayment: "✅ Проверить оплату",
     askBtc: "Введите порог BTC (например, 0.001).",
     askEth: "Введите порог ETH (например, 0.01).",
     askUsdt: "Введите порог USDT (например, 50).",
@@ -231,6 +249,17 @@ const I18N = {
     promoAlreadyUsed: "You have already used this promo code.",
     promoExhausted: "Promo code activation limit has been reached.",
     promoEmpty: "Please send a non-empty promo code.",
+    paymentChooseNetwork: "Choose network for subscription payment.",
+    paymentInvoiceTitle: "Subscription payment",
+    paymentAmount: "Amount",
+    paymentAddress: "Address",
+    paymentExpiresAt: "Valid until",
+    paymentInstruction:
+      "Pay the EXACT amount and tap \"✅ Check payment\". Automatic check runs every 2 minutes.",
+    paymentCheckNoRequest: "No active invoice. Tap \"💳 Pay subscription\" first.",
+    paymentCheckPending: "Payment not found yet. Verify amount/network and try again in a minute.",
+    paymentNetworkBsc: "🟡 USDT BEP20",
+    paymentNetworkTrc20: "🔴 USDT TRC20",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
@@ -281,6 +310,8 @@ const I18N = {
     btnAdminStopWallets: "⛔ Stop wallets",
     btnAdminLinks: "🔎 Links log",
     btnActivatePromo: "🎟️ Activate promo code",
+    btnPaySubscription: "💳 Pay subscription",
+    btnCheckPayment: "✅ Check payment",
     askBtc: "Enter BTC threshold (example: 0.001).",
     askEth: "Enter ETH threshold (example: 0.01).",
     askUsdt: "Enter USDT threshold (example: 50).",
@@ -320,6 +351,16 @@ function isSectionActionButton(input: string): boolean {
     isBtn(input, "btnBalance") ||
     isBtn(input, "btnHistory") ||
     isBtn(input, "btnRateTransfer")
+  );
+}
+
+function isCabinetActionButton(input: string): boolean {
+  return (
+    isBtn(input, "btnPaySubscription") ||
+    isBtn(input, "btnCheckPayment") ||
+    isBtn(input, "btnActivatePromo") ||
+    isBtn(input, "paymentNetworkBsc") ||
+    isBtn(input, "paymentNetworkTrc20")
   );
 }
 
@@ -414,6 +455,29 @@ async function sendPagedList(params: {
   }
 }
 
+async function showWalletsList(
+  env: Env,
+  chatId: number,
+  userId: string,
+  language: Language,
+  replyMarkup: ReplyMarkup
+): Promise<void> {
+  const wallets = await listWallets(env, userId);
+  if (wallets.length === 0) {
+    await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, chatId, t(language, "walletListEmpty"), replyMarkup);
+    return;
+  }
+  const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
+  await sendPagedList({
+    token: env.TELEGRAM_BOT_TOKEN,
+    chatId,
+    language,
+    title: `${t(language, "walletsTitle")}:`,
+    lines,
+    replyMarkup
+  });
+}
+
 function formatDateForLanguage(value: string | null, language: Language): string {
   if (!value) {
     return "—";
@@ -486,7 +550,21 @@ function mainKeyboard(language: Language, isAdmin = false): ReplyMarkup {
 
 function cabinetKeyboard(language: Language): ReplyMarkup {
   return {
-    keyboard: [[t(language, "btnActivatePromo")], [t(language, "btnMainMenu")]],
+    keyboard: [
+      [t(language, "btnPaySubscription"), t(language, "btnCheckPayment")],
+      [t(language, "btnActivatePromo")],
+      [t(language, "btnMainMenu")]
+    ],
+    resize_keyboard: true
+  };
+}
+
+function paymentNetworkKeyboard(language: Language): ReplyMarkup {
+  return {
+    keyboard: [
+      [t(language, "paymentNetworkBsc"), t(language, "paymentNetworkTrc20")],
+      [t(language, "btnBack"), t(language, "btnMainMenu")]
+    ],
     resize_keyboard: true
   };
 }
@@ -650,11 +728,14 @@ bot.post("/telegram", async (c) => {
   }
 
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
+    if (!session) {
+      return c.json({ ok: true });
+    }
     await clearBotSession(c.env, userId);
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      t(language, "mainMenu"),
+      `${t(language, "greet")}\n\n${t(language, "mainMenu")}`,
       mainKeyboard(language, isAdmin)
     );
     return c.json({ ok: true });
@@ -668,6 +749,11 @@ bot.post("/telegram", async (c) => {
       session = { flow: `section:${inferred}` };
       await setBotSession(c.env, userId, session);
     }
+  }
+
+  if (isCabinetActionButton(text) && session?.flow.startsWith("cabinet:")) {
+    session = { flow: "section:cabinet" };
+    await setBotSession(c.env, userId, session);
   }
 
   if (canAutoAddWalletFromMessage(session)) {
@@ -1031,6 +1117,37 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  if (session?.flow === "cabinet:pay:network") {
+    const network = isBtn(text, "paymentNetworkBsc")
+      ? "bsc"
+      : isBtn(text, "paymentNetworkTrc20")
+        ? "trc20"
+        : null;
+    if (!network) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "paymentChooseNetwork"),
+        paymentNetworkKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
+    const invoice = await createSubscriptionPaymentInvoice(c.env, userId, network);
+    await setBotSession(c.env, userId, { flow: "section:cabinet" });
+    const networkLabel = network === "bsc" ? t(language, "paymentNetworkBsc") : t(language, "paymentNetworkTrc20");
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      `${t(language, "paymentInvoiceTitle")} (${networkLabel})\n` +
+        `${t(language, "paymentAmount")}: ${invoice.amountText} ${invoice.asset}\n` +
+        `${t(language, "paymentAddress")}: ${invoice.payAddress}\n` +
+        `${t(language, "paymentExpiresAt")}: ${formatDateForLanguage(invoice.expiresAt, language)}\n\n` +
+        `${t(language, "paymentInstruction")}`,
+      cabinetKeyboard(language)
+    );
+    return c.json({ ok: true });
+  }
+
   if (session?.flow === "cabinet:promo:code") {
     try {
       if (!text.trim()) {
@@ -1226,7 +1343,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnWallets")) {
     await setBotSession(c.env, userId, { flow: "section:wallets" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletsTitle"), sectionKeyboard(language));
+    await showWalletsList(c.env, message.chat.id, userId, language, sectionKeyboard(language));
     return c.json({ ok: true });
   }
 
@@ -1237,7 +1354,7 @@ bot.post("/telegram", async (c) => {
   }
 
   if (isBtn(text, "btnSettings")) {
-    await clearBotSession(c.env, userId);
+    await setBotSession(c.env, userId, { flow: "section:settings" });
     const summary =
       `${t(language, "settingsTitle")}\n` +
       `BTC: ${settings.btcThreshold}\nETH: ${settings.ethThreshold}\nUSDT: ${settings.usdtThreshold}\n` +
@@ -1249,7 +1366,7 @@ bot.post("/telegram", async (c) => {
   }
 
   if (isBtn(text, "btnCabinet")) {
-    await clearBotSession(c.env, userId);
+    await setBotSession(c.env, userId, { flow: "section:cabinet" });
     const subscription = await getSubscriptionInfo(c.env, userId);
     const statusLabel =
       subscription.status === "active"
@@ -1297,23 +1414,41 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  if (isBtn(text, "btnPaySubscription")) {
+    await setBotSession(c.env, userId, { flow: "cabinet:pay:network" });
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      t(language, "paymentChooseNetwork"),
+      paymentNetworkKeyboard(language)
+    );
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnCheckPayment")) {
+    const result = await processSubscriptionPayments(c.env, { userId });
+    const active = await getActiveSubscriptionPaymentRequest(c.env, userId);
+    if (result.paid > 0) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        language === "ru" ? "✅ Платеж найден и подписка активирована." : "✅ Payment found and subscription activated.",
+        cabinetKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
+    if (!active) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "paymentCheckNoRequest"), cabinetKeyboard(language));
+      return c.json({ ok: true });
+    }
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "paymentCheckPending"), cabinetKeyboard(language));
+    return c.json({ ok: true });
+  }
+
   if (isBtn(text, "btnList")) {
     const section = currentSection(session);
     if (section === "wallets") {
-      const wallets = await listWallets(c.env, userId);
-      if (wallets.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletListEmpty"), sectionKeyboard(language));
-        return c.json({ ok: true });
-      }
-      const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
-      await sendPagedList({
-        token: c.env.TELEGRAM_BOT_TOKEN,
-        chatId: message.chat.id,
-        language,
-        title: `${t(language, "walletsTitle")}:`,
-        lines,
-        replyMarkup: sectionKeyboard(language)
-      });
+      await showWalletsList(c.env, message.chat.id, userId, language, sectionKeyboard(language));
       return c.json({ ok: true });
     }
     if (section === "contacts") {

@@ -3,9 +3,10 @@ import api from "./routes/api";
 import bot from "./routes/bot";
 import miniapp from "./routes/miniapp";
 import { authMiddleware } from "./lib/auth";
-import { mutationRateLimit } from "./lib/rate-limit";
-import type { Env } from "./types/env";
 import { runWalletMonitoring } from "./lib/monitor";
+import { mutationRateLimit } from "./lib/rate-limit";
+import { processSubscriptionPayments } from "./lib/subscription-payments";
+import type { Env } from "./types/env";
 
 type Variables = {
   userId: string;
@@ -29,5 +30,6 @@ export default {
   fetch: app.fetch,
   scheduled: async (_event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
     ctx.waitUntil(runWalletMonitoring(env));
+    ctx.waitUntil(processSubscriptionPayments(env));
   }
 };
