@@ -58,59 +58,59 @@ function pageHtml(): string {
     <div id="toast" class="toast"></div>
     <div class="wrap">
       <div class="head">
-        <div class="title">VOROBEY: Check</div>
-        <div class="sub">Mini App v2: bot parity + admin tools</div>
+        <div id="app-title" class="title">VOROBEY: Check</div>
+        <div id="app-subtitle" class="sub">Mini App v2: bot parity + admin tools</div>
         <div class="stats">
-          <div class="stat"><div class="k">Wallets</div><div id="stat-wallets" class="v">0 / 10</div></div>
-          <div class="stat"><div class="k">Contacts</div><div id="stat-contacts" class="v">0 / 50</div></div>
-          <div class="stat"><div class="k">Role</div><div id="stat-role" class="v">User</div></div>
+          <div class="stat"><div id="stat-wallets-label" class="k">Wallets</div><div id="stat-wallets" class="v">0 / 10</div></div>
+          <div class="stat"><div id="stat-contacts-label" class="k">Contacts</div><div id="stat-contacts" class="v">0 / 50</div></div>
+          <div class="stat"><div id="stat-role-label" class="k">Role</div><div id="stat-role" class="v">User</div></div>
         </div>
         <div class="tabs" id="tabs">
-          <div class="tab active" data-tab="wallets">Wallets</div>
-          <div class="tab" data-tab="contacts">Contacts</div>
-          <div class="tab" data-tab="history">History</div>
-          <div class="tab" data-tab="cabinet">Cabinet</div>
-          <div class="tab" data-tab="settings">Settings</div>
+          <div id="tab-wallets" class="tab active" data-tab="wallets">Wallets</div>
+          <div id="tab-contacts" class="tab" data-tab="contacts">Contacts</div>
+          <div id="tab-history" class="tab" data-tab="history">History</div>
+          <div id="tab-cabinet" class="tab" data-tab="cabinet">Cabinet</div>
+          <div id="tab-settings" class="tab" data-tab="settings">Settings</div>
           <div class="tab hidden" data-tab="admin" id="admin-tab">Admin</div>
         </div>
       </div>
 
       <section id="wallets" class="panel active">
         <div class="card">
-          <h3>Add tracked wallet</h3>
+          <h3 id="wallet-add-title">Add tracked wallet</h3>
           <div class="grid">
-            <div class="row"><label>Address</label><input id="wallet-address" placeholder="0x... / bc1... / T..." /></div>
+            <div class="row"><label id="wallet-address-label">Address</label><input id="wallet-address" placeholder="0x... / bc1... / T..." /></div>
             <div class="btns"><button class="btn primary" id="wallet-add">Add wallet</button></div>
           </div>
         </div>
         <div class="card">
-          <h3>Tracked wallets</h3>
+          <h3 id="wallet-list-title">Tracked wallets</h3>
           <div id="wallet-list"></div>
         </div>
       </section>
 
       <section id="contacts" class="panel">
         <div class="card">
-          <h3>Add known wallet</h3>
+          <h3 id="contact-add-title">Add known wallet</h3>
           <div class="grid">
-            <div class="row"><label>Address</label><input id="contact-address" placeholder="Address" /></div>
-            <div class="row"><label>Label</label><input id="contact-label" placeholder="Label" /></div>
+            <div class="row"><label id="contact-address-label">Address</label><input id="contact-address" placeholder="Address" /></div>
+            <div class="row"><label id="contact-label-label">Label</label><input id="contact-label" placeholder="Label" /></div>
             <div class="btns"><button class="btn primary" id="contact-add">Add contact</button></div>
           </div>
         </div>
-        <div class="card"><h3>Known wallets</h3><div id="contact-list"></div></div>
+        <div class="card"><h3 id="contact-list-title">Known wallets</h3><div id="contact-list"></div></div>
       </section>
 
       <section id="history" class="panel">
-        <div class="card"><h3>Transfer history</h3><div id="history-list"></div></div>
+        <div class="card"><h3 id="history-title">Transfer history</h3><div id="history-list"></div></div>
       </section>
 
       <section id="cabinet" class="panel">
-        <div class="card"><h3>Subscription</h3><div id="cabinet-subscription"></div></div>
+        <div class="card"><h3 id="cabinet-subscription-title">Subscription</h3><div id="cabinet-subscription"></div></div>
         <div class="card">
-          <h3>Payment</h3>
+          <h3 id="payment-title">Payment</h3>
           <div class="grid">
-            <div class="row"><label>Network</label><select id="pay-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
+            <div class="row"><label id="pay-network-label">Network</label><select id="pay-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
             <div class="btns">
               <button class="btn primary" id="pay-create">Create invoice</button>
               <button class="btn ok" id="pay-check">Check payment</button>
@@ -119,9 +119,9 @@ function pageHtml(): string {
           </div>
         </div>
         <div class="card">
-          <h3>Promo code</h3>
+          <h3 id="promo-title">Promo code</h3>
           <div class="grid">
-            <div class="row"><label>Code</label><input id="promo-code" placeholder="PROMO2026" /></div>
+            <div class="row"><label id="promo-code-label">Code</label><input id="promo-code" placeholder="PROMO2026" /></div>
             <div class="btns"><button class="btn primary" id="promo-activate">Activate promo</button></div>
           </div>
         </div>
@@ -129,12 +129,12 @@ function pageHtml(): string {
 
       <section id="settings" class="panel">
         <div class="card">
-          <h3>Settings</h3>
+          <h3 id="settings-title">Settings</h3>
           <div class="grid">
-            <div class="row"><label>Language</label><select id="set-lang"><option value="ru">RU</option><option value="en">EN</option></select></div>
-            <div class="row"><label>BTC threshold</label><input id="set-btc" /></div>
-            <div class="row"><label>ETH threshold</label><input id="set-eth" /></div>
-            <div class="row"><label>USDT threshold</label><input id="set-usdt" /></div>
+            <div class="row"><label id="settings-lang-label">Language</label><select id="set-lang"><option value="ru">RU</option><option value="en">EN</option></select></div>
+            <div class="row"><label id="settings-btc-label">BTC threshold</label><input id="set-btc" /></div>
+            <div class="row"><label id="settings-eth-label">ETH threshold</label><input id="set-eth" /></div>
+            <div class="row"><label id="settings-usdt-label">USDT threshold</label><input id="set-usdt" /></div>
             <div class="btns"><button class="btn primary" id="settings-save">Save settings</button></div>
           </div>
         </div>
@@ -142,21 +142,21 @@ function pageHtml(): string {
 
       <section id="admin" class="panel hidden">
         <div class="card">
-          <h3>Generate promo code</h3>
+          <h3 id="admin-promo-create-title">Generate promo code</h3>
           <div class="grid">
-            <div class="row"><label>Code</label><input id="admin-promo-code" placeholder="SPRING2026" /></div>
-            <div class="row"><label>Duration days</label><input id="admin-promo-days" type="number" value="30" /></div>
-            <div class="row"><label>Max activations</label><input id="admin-promo-max" type="number" placeholder="Optional" /></div>
-            <div class="row"><label>Bonus percent (e.g. 20 = +20% days)</label><input id="admin-promo-percent" type="number" value="0" /></div>
+            <div class="row"><label id="admin-promo-code-label">Code</label><input id="admin-promo-code" placeholder="SPRING2026" /></div>
+            <div class="row"><label id="admin-promo-days-label">Duration days</label><input id="admin-promo-days" type="number" value="30" /></div>
+            <div class="row"><label id="admin-promo-max-label">Max activations</label><input id="admin-promo-max" type="number" placeholder="Optional" /></div>
+            <div class="row"><label id="admin-promo-percent-label">Bonus percent (e.g. 20 = +20% days)</label><input id="admin-promo-percent" type="number" value="0" /></div>
             <div class="btns"><button class="btn primary" id="admin-promo-create">Create promo</button></div>
           </div>
         </div>
-        <div class="card"><h3>Promo codes</h3><div id="admin-promo-list"></div></div>
+        <div class="card"><h3 id="admin-promo-list-title">Promo codes</h3><div id="admin-promo-list"></div></div>
         <div class="card">
-          <h3>Stop wallets</h3>
+          <h3 id="admin-stop-title">Stop wallets</h3>
           <div class="grid">
-            <div class="row"><label>Network</label><select id="admin-stop-network"><option value="btc">BTC</option><option value="eth">ETH</option><option value="bsc">BEP20</option><option value="trc20">TRC20</option></select></div>
-            <div class="row"><label>Address</label><input id="admin-stop-address" placeholder="Address" /></div>
+            <div class="row"><label id="admin-stop-network-label">Network</label><select id="admin-stop-network"><option value="btc">BTC</option><option value="eth">ETH</option><option value="bsc">BEP20</option><option value="trc20">TRC20</option></select></div>
+            <div class="row"><label id="admin-stop-address-label">Address</label><input id="admin-stop-address" placeholder="Address" /></div>
             <div class="btns">
               <button class="btn primary" id="admin-stop-add">Add to stop list</button>
               <button class="btn bad" id="admin-stop-remove-btn">Remove from stop list</button>
@@ -164,8 +164,8 @@ function pageHtml(): string {
           </div>
           <div id="admin-stop-list"></div>
         </div>
-        <div class="card"><h3>Link audit</h3><div id="admin-link-list"></div></div>
-        <div class="card"><h3>Wallet reputation</h3><div id="admin-reputation-list"></div></div>
+        <div class="card"><h3 id="admin-link-title">Link audit</h3><div id="admin-link-list"></div></div>
+        <div class="card"><h3 id="admin-reputation-title">Wallet reputation</h3><div id="admin-reputation-list"></div></div>
       </section>
     </div>
 
@@ -179,10 +179,254 @@ function pageHtml(): string {
 
       const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null, lang: initialLang };
       const $ = (id) => document.getElementById(id);
+      const L10N = {
+        ru: {
+          subtitle: "Мини-приложение v2: паритет с ботом + админ-инструменты",
+          wallets: "Кошельки",
+          contacts: "Контакты",
+          role: "Роль",
+          tabWallets: "Кошельки",
+          tabContacts: "Контакты",
+          tabHistory: "История",
+          tabCabinet: "Кабинет",
+          tabSettings: "Настройки",
+          tabAdmin: "Админ",
+          walletAddTitle: "Добавить отслеживаемый кошелек",
+          address: "Адрес",
+          addWallet: "Добавить кошелек",
+          trackedWallets: "Отслеживаемые кошельки",
+          addKnownWallet: "Добавить знакомый кошелек",
+          label: "Метка",
+          addContact: "Добавить контакт",
+          knownWallets: "Знакомые кошельки",
+          transferHistory: "История переводов",
+          subscription: "Подписка",
+          payment: "Оплата",
+          network: "Сеть",
+          createInvoice: "Создать счет",
+          checkPayment: "Проверить оплату",
+          promoCode: "Промокод",
+          activatePromo: "Активировать промокод",
+          settings: "Настройки",
+          language: "Язык",
+          btcThreshold: "Порог BTC",
+          ethThreshold: "Порог ETH",
+          usdtThreshold: "Порог USDT",
+          saveSettings: "Сохранить настройки",
+          generatePromoCode: "Создать промокод",
+          durationDays: "Длительность в днях",
+          maxActivations: "Макс. активаций",
+          bonusPercent: "Бонусный процент (например 20 = +20% дней)",
+          createPromo: "Создать промокод",
+          promoCodes: "Промокоды",
+          stopWallets: "Стоп-кошельки",
+          addToStopList: "Добавить в стоп-лист",
+          removeFromStopList: "Удалить из стоп-листа",
+          linkAudit: "Лог ссылок",
+          walletReputation: "Репутация кошельков",
+          roleAdmin: "Админ",
+          roleUser: "Пользователь",
+          noWallets: "Пока нет кошельков.",
+          noContacts: "Пока нет контактов.",
+          noTransfers: "Пока нет переводов.",
+          copy: "Копировать",
+          assets: "Активы",
+          balance: "Баланс",
+          delete: "Удалить",
+          plan: "План",
+          status: "Статус",
+          validUntil: "Действует до",
+          promoActivations: "Активаций промокодов",
+          pendingInvoice: "Активный счет",
+          expires: "Истекает",
+          noActiveInvoice: "Нет активного счета.",
+          copyAddress: "Копировать адрес",
+          active: "активен",
+          disabled: "выключен",
+          uses: "использовано",
+          enable: "Включить",
+          disable: "Выключить",
+          noStopWallets: "Стоп-кошельков нет.",
+          noLinkLogs: "Логи ссылок отсутствуют.",
+          score: "рейтинг",
+          userLabel: "пользователь",
+          walletAdded: "Кошелек добавлен.",
+          contactAdded: "Контакт добавлен.",
+          settingsSaved: "Настройки сохранены.",
+          invoiceCreated: "Счет создан.",
+          paymentConfirmed: "Оплата подтверждена.",
+          paymentNotFound: "Платеж пока не найден.",
+          promoActivatedOk: "Промокод активирован.",
+          promoCreatedOk: "Промокод создан.",
+          addedStopOk: "Добавлено в стоп-лист.",
+          removedStopOk: "Удалено из стоп-листа.",
+          walletDeleted: "Кошелек удален.",
+          contactDeleted: "Контакт удален.",
+          promoStateUpdated: "Статус промокода обновлен.",
+          detectFailed: "Не удалось определить сеть.",
+          openFromTelegram: "Откройте Mini App из Telegram для авторизации.",
+          accessFirst: "Сначала оплатите подписку в разделе Cabinet, затем откроется весь функционал."
+        },
+        en: {
+          subtitle: "Mini App v2: bot parity + admin tools",
+          wallets: "Wallets",
+          contacts: "Contacts",
+          role: "Role",
+          tabWallets: "Wallets",
+          tabContacts: "Contacts",
+          tabHistory: "History",
+          tabCabinet: "Cabinet",
+          tabSettings: "Settings",
+          tabAdmin: "Admin",
+          walletAddTitle: "Add tracked wallet",
+          address: "Address",
+          addWallet: "Add wallet",
+          trackedWallets: "Tracked wallets",
+          addKnownWallet: "Add known wallet",
+          label: "Label",
+          addContact: "Add contact",
+          knownWallets: "Known wallets",
+          transferHistory: "Transfer history",
+          subscription: "Subscription",
+          payment: "Payment",
+          network: "Network",
+          createInvoice: "Create invoice",
+          checkPayment: "Check payment",
+          promoCode: "Promo code",
+          activatePromo: "Activate promo",
+          settings: "Settings",
+          language: "Language",
+          btcThreshold: "BTC threshold",
+          ethThreshold: "ETH threshold",
+          usdtThreshold: "USDT threshold",
+          saveSettings: "Save settings",
+          generatePromoCode: "Generate promo code",
+          durationDays: "Duration days",
+          maxActivations: "Max activations",
+          bonusPercent: "Bonus percent (e.g. 20 = +20% days)",
+          createPromo: "Create promo",
+          promoCodes: "Promo codes",
+          stopWallets: "Stop wallets",
+          addToStopList: "Add to stop list",
+          removeFromStopList: "Remove from stop list",
+          linkAudit: "Link audit",
+          walletReputation: "Wallet reputation",
+          roleAdmin: "Admin",
+          roleUser: "User",
+          noWallets: "No wallets yet.",
+          noContacts: "No contacts yet.",
+          noTransfers: "No transfers yet.",
+          copy: "Copy",
+          assets: "Assets",
+          balance: "Balance",
+          delete: "Delete",
+          plan: "Plan",
+          status: "Status",
+          validUntil: "Valid until",
+          promoActivations: "Promo activations",
+          pendingInvoice: "Pending invoice",
+          expires: "Expires",
+          noActiveInvoice: "No active invoice.",
+          copyAddress: "Copy address",
+          active: "active",
+          disabled: "disabled",
+          uses: "uses",
+          enable: "Enable",
+          disable: "Disable",
+          noStopWallets: "No stop wallets.",
+          noLinkLogs: "No link logs.",
+          score: "score",
+          userLabel: "user",
+          walletAdded: "Wallet added.",
+          contactAdded: "Contact added.",
+          settingsSaved: "Settings saved.",
+          invoiceCreated: "Invoice created.",
+          paymentConfirmed: "Payment confirmed.",
+          paymentNotFound: "Payment not found yet.",
+          promoActivatedOk: "Promo activated.",
+          promoCreatedOk: "Promo code created.",
+          addedStopOk: "Added to stop list.",
+          removedStopOk: "Removed from stop list.",
+          walletDeleted: "Wallet deleted.",
+          contactDeleted: "Contact deleted.",
+          promoStateUpdated: "Promo state updated.",
+          detectFailed: "Could not detect network.",
+          openFromTelegram: "Open from Telegram to authorize.",
+          accessFirst: "Pay subscription in Cabinet first, then full functionality will unlock."
+        }
+      };
+      function tr(key) {
+        return (L10N[state.lang] && L10N[state.lang][key]) || L10N.en[key] || key;
+      }
       function msg(ru, en) {
         return state.lang === "en" ? en : ru;
       }
+      function applyLocaleStatic() {
+        $("app-subtitle").textContent = tr("subtitle");
+        $("stat-wallets-label").textContent = tr("wallets");
+        $("stat-contacts-label").textContent = tr("contacts");
+        $("stat-role-label").textContent = tr("role");
+        $("tab-wallets").textContent = tr("tabWallets");
+        $("tab-contacts").textContent = tr("tabContacts");
+        $("tab-history").textContent = tr("tabHistory");
+        $("tab-cabinet").textContent = tr("tabCabinet");
+        $("tab-settings").textContent = tr("tabSettings");
+        $("admin-tab").textContent = tr("tabAdmin");
+        $("wallet-add-title").textContent = tr("walletAddTitle");
+        $("wallet-address-label").textContent = tr("address");
+        $("wallet-address").placeholder = "0x... / bc1... / T...";
+        $("wallet-add").textContent = tr("addWallet");
+        $("wallet-list-title").textContent = tr("trackedWallets");
+        $("contact-add-title").textContent = tr("addKnownWallet");
+        $("contact-address-label").textContent = tr("address");
+        $("contact-address").placeholder = tr("address");
+        $("contact-label-label").textContent = tr("label");
+        $("contact-label").placeholder = tr("label");
+        $("contact-add").textContent = tr("addContact");
+        $("contact-list-title").textContent = tr("knownWallets");
+        $("history-title").textContent = tr("transferHistory");
+        $("cabinet-subscription-title").textContent = tr("subscription");
+        $("payment-title").textContent = tr("payment");
+        $("pay-network-label").textContent = tr("network");
+        $("pay-create").textContent = tr("createInvoice");
+        $("pay-check").textContent = tr("checkPayment");
+        $("promo-title").textContent = tr("promoCode");
+        $("promo-code-label").textContent = tr("promoCode");
+        $("promo-activate").textContent = tr("activatePromo");
+        $("settings-title").textContent = tr("settings");
+        $("settings-lang-label").textContent = tr("language");
+        $("settings-btc-label").textContent = tr("btcThreshold");
+        $("settings-eth-label").textContent = tr("ethThreshold");
+        $("settings-usdt-label").textContent = tr("usdtThreshold");
+        $("settings-save").textContent = tr("saveSettings");
+        const promoCreateTitle = $("admin-promo-create-title");
+        if (promoCreateTitle) promoCreateTitle.textContent = tr("generatePromoCode");
+        const promoCodeLabel = $("admin-promo-code-label");
+        if (promoCodeLabel) promoCodeLabel.textContent = tr("promoCode");
+        const promoDaysLabel = $("admin-promo-days-label");
+        if (promoDaysLabel) promoDaysLabel.textContent = tr("durationDays");
+        const promoMaxLabel = $("admin-promo-max-label");
+        if (promoMaxLabel) promoMaxLabel.textContent = tr("maxActivations");
+        const promoPercentLabel = $("admin-promo-percent-label");
+        if (promoPercentLabel) promoPercentLabel.textContent = tr("bonusPercent");
+        $("admin-promo-create").textContent = tr("createPromo");
+        const promoListTitle = $("admin-promo-list-title");
+        if (promoListTitle) promoListTitle.textContent = tr("promoCodes");
+        const stopTitle = $("admin-stop-title");
+        if (stopTitle) stopTitle.textContent = tr("stopWallets");
+        const stopNetworkLabel = $("admin-stop-network-label");
+        if (stopNetworkLabel) stopNetworkLabel.textContent = tr("network");
+        const stopAddressLabel = $("admin-stop-address-label");
+        if (stopAddressLabel) stopAddressLabel.textContent = tr("address");
+        $("admin-stop-add").textContent = tr("addToStopList");
+        $("admin-stop-remove-btn").textContent = tr("removeFromStopList");
+        const linkTitle = $("admin-link-title");
+        if (linkTitle) linkTitle.textContent = tr("linkAudit");
+        const reputationTitle = $("admin-reputation-title");
+        if (reputationTitle) reputationTitle.textContent = tr("walletReputation");
+      }
       document.documentElement.lang = state.lang;
+      applyLocaleStatic();
       function toast(text, bad = false) {
         const el = $("toast");
         el.textContent = String(text || "");
@@ -243,7 +487,7 @@ function pageHtml(): string {
         $(id).appendChild(div);
       }
       function renderSummary() {
-        $("stat-role").textContent = state.me?.isAdmin ? "Admin" : "User";
+        $("stat-role").textContent = state.me?.isAdmin ? tr("roleAdmin") : tr("roleUser");
         if (!state.summary) {
           $("stat-wallets").textContent = "—";
           $("stat-contacts").textContent = "—";
@@ -291,7 +535,7 @@ function pageHtml(): string {
         state.wallets = data.items || [];
         clearNode("wallet-list");
         if (!state.wallets.length) {
-          append("wallet-list", '<div class="muted">No wallets yet.</div>');
+          append("wallet-list", '<div class="muted">' + tr("noWallets") + "</div>");
           return;
         }
         state.wallets.forEach((w) => {
@@ -302,17 +546,17 @@ function pageHtml(): string {
               w.address +
               "</span><button class='btn ghost copy-btn' data-copy='" +
               w.address +
-              "'>Copy</button></div>" +
-              "<div class='muted'>Assets: " +
+              "'>" + tr("copy") + "</button></div>" +
+              "<div class='muted'>" + tr("assets") + ": " +
               [w.monitorEthNative ? "ETH" : "", w.monitorUsdtErc20 ? "USDT ERC20" : "", w.monitorUsdtBep20 ? "USDT BEP20" : "", w.monitorUsdtTrc20 ? "USDT TRC20" : ""]
                 .filter(Boolean)
                 .join(", ") +
               "</div>" +
               "<div class='btns'><button class='btn ghost' data-bal='" +
               w.id +
-              "'>Balance</button><button class='btn bad' data-del-wallet='" +
+              "'>" + tr("balance") + "</button><button class='btn bad' data-del-wallet='" +
               w.id +
-              "'>Delete</button></div><div id='bal-" +
+              "'>" + tr("delete") + "</button></div><div id='bal-" +
               w.id +
               "' class='muted'></div>"
           );
@@ -323,7 +567,7 @@ function pageHtml(): string {
         state.contacts = data.items || [];
         clearNode("contact-list");
         if (!state.contacts.length) {
-          append("contact-list", '<div class="muted">No contacts yet.</div>');
+          append("contact-list", '<div class="muted">' + tr("noContacts") + "</div>");
           return;
         }
         state.contacts.forEach((it) => {
@@ -337,9 +581,9 @@ function pageHtml(): string {
               it.address +
               "</span><button class='btn ghost copy-btn' data-copy='" +
               it.address +
-              "'>Copy</button></div><div class='btns'><button class='btn bad' data-del-contact='" +
+              "'>" + tr("copy") + "</button></div><div class='btns'><button class='btn bad' data-del-contact='" +
               it.id +
-              "'>Delete</button></div>"
+              "'>" + tr("delete") + "</button></div>"
           );
         });
       }
@@ -348,7 +592,7 @@ function pageHtml(): string {
         state.history = data.items || [];
         clearNode("history-list");
         if (!state.history.length) {
-          append("history-list", '<div class="muted">No transfers yet.</div>');
+          append("history-list", '<div class="muted">' + tr("noTransfers") + "</div>");
           return;
         }
         state.history.forEach((h) => {
@@ -377,6 +621,7 @@ function pageHtml(): string {
         const lang = s.language === "en" || s.language === "ru" ? s.language : initialLang;
         state.lang = lang;
         document.documentElement.lang = lang;
+        applyLocaleStatic();
         $("set-lang").value = lang;
         $("set-btc").value = s.btcThreshold;
         $("set-eth").value = s.ethThreshold;
@@ -388,29 +633,29 @@ function pageHtml(): string {
         state.payment = data.activePayment;
         const s = data.subscription;
         $("cabinet-subscription").innerHTML =
-          "<div><b>Plan:</b> <code>" +
+          "<div><b>" + tr("plan") + ":</b> <code>" +
           s.planCode +
-          "</code></div><div><b>Status:</b> " +
+          "</code></div><div><b>" + tr("status") + ":</b> " +
           s.status +
-          "</div><div><b>Valid until:</b> " +
+          "</div><div><b>" + tr("validUntil") + ":</b> " +
           fmtDate(s.expiresAt) +
-          "</div><div><b>Promo activations:</b> " +
+          "</div><div><b>" + tr("promoActivations") + ":</b> " +
           s.promoActivations +
           "</div>";
         if (data.activePayment) {
           $("pay-info").innerHTML =
-            "Pending invoice: <b>" +
+            tr("pendingInvoice") + ": <b>" +
             data.activePayment.amountText +
             " " +
             data.activePayment.asset +
-            "</b><div class='copy-block'>Address:<span class='mono addr-pill'>" +
+            "</b><div class='copy-block'>" + tr("address") + ":<span class='mono addr-pill'>" +
             data.activePayment.payAddress +
             "</span><button class='btn ghost copy-btn' data-copy='" +
             data.activePayment.payAddress +
-            "'>Copy address</button></div>Expires: " +
+            "'>" + tr("copyAddress") + "</button></div>" + tr("expires") + ": " +
             fmtDate(data.activePayment.expiresAt);
         } else {
-          $("pay-info").textContent = "No active invoice.";
+          $("pay-info").textContent = tr("noActiveInvoice");
         }
       }
       async function loadAdmin() {
@@ -432,8 +677,8 @@ function pageHtml(): string {
               "d · +" +
               p.bonusPercent +
               "% · " +
-              (p.isActive ? "active" : "disabled") +
-              "</div><div class='muted'>uses: " +
+              (p.isActive ? tr("active") : tr("disabled")) +
+              "</div><div class='muted'>" + tr("uses") + ": " +
               p.activationsCount +
               " / " +
               (p.maxActivations ?? "∞") +
@@ -442,7 +687,7 @@ function pageHtml(): string {
               "' data-next-active='" +
               (p.isActive ? "0" : "1") +
               "'>" +
-              (p.isActive ? "Disable" : "Enable") +
+              (p.isActive ? tr("disable") : tr("enable")) +
               "</button></div>"
           );
         });
@@ -456,22 +701,22 @@ function pageHtml(): string {
               s.address +
               "</span><button class='btn ghost copy-btn' data-copy='" +
               s.address +
-              "'>Copy</button></div><div class='btns'><button class='btn bad' data-stop-remove='" +
+              "'>" + tr("copy") + "</button></div><div class='btns'><button class='btn bad' data-stop-remove='" +
               s.network +
               "' data-stop-address='" +
               s.address +
-              "'>Remove</button></div>"
+              "'>" + tr("delete") + "</button></div>"
           )
         );
-        if (!(stop.items || []).length) append("admin-stop-list", '<div class="muted">No stop wallets.</div>');
+        if (!(stop.items || []).length) append("admin-stop-list", '<div class="muted">' + tr("noStopWallets") + "</div>");
         clearNode("admin-link-list");
         (links.items || []).forEach((it) =>
-          append("admin-link-list", "<div>" + it.entityType + " · [" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>user " + it.actorUserId + " · " + fmtDate(it.createdAt) + "</div>")
+          append("admin-link-list", "<div>" + it.entityType + " · [" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>" + tr("userLabel") + " " + it.actorUserId + " · " + fmtDate(it.createdAt) + "</div>")
         );
-        if (!(links.items || []).length) append("admin-link-list", '<div class="muted">No link logs.</div>');
+        if (!(links.items || []).length) append("admin-link-list", '<div class="muted">' + tr("noLinkLogs") + "</div>");
         clearNode("admin-reputation-list");
         (rep.items || []).forEach((it) =>
-          append("admin-reputation-list", "<div>[" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>score: " + it.score + " (👍 " + it.likesCount + " / 👎 " + it.dislikesCount + ")</div>")
+          append("admin-reputation-list", "<div>[" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>" + tr("score") + ": " + it.score + " (👍 " + it.likesCount + " / 👎 " + it.dislikesCount + ")</div>")
         );
       }
 
@@ -482,11 +727,11 @@ function pageHtml(): string {
           const address = $("wallet-address").value.trim();
           const detected = await api("/detect-network", "POST", { address });
           const candidates = detected.candidates || [];
-          if (!candidates.length) throw new Error("Could not detect network.");
+          if (!candidates.length) throw new Error(tr("detectFailed"));
           const network = candidates[0];
           await api("/wallets", "POST", { network, address, monitorEthNative: true, monitorUsdtErc20: true, monitorUsdtBep20: true, monitorUsdtTrc20: true });
           $("wallet-address").value = "";
-          toast("Wallet added.");
+          toast(tr("walletAdded"));
           await Promise.all([loadWallets(), loadSummary()]);
           renderSummary();
         } catch (e) { toast(e.message || "Error", true); }
@@ -498,11 +743,11 @@ function pageHtml(): string {
           const label = $("contact-label").value.trim();
           const detected = await api("/detect-network", "POST", { address });
           const candidates = detected.candidates || [];
-          if (!candidates.length) throw new Error("Could not detect network.");
+          if (!candidates.length) throw new Error(tr("detectFailed"));
           await api("/contacts", "POST", { network: candidates[0], address, label });
           $("contact-address").value = "";
           $("contact-label").value = "";
-          toast("Contact added.");
+          toast(tr("contactAdded"));
           await Promise.all([loadContacts(), loadSummary()]);
           renderSummary();
         } catch (e) { toast(e.message || "Error", true); }
@@ -521,7 +766,13 @@ function pageHtml(): string {
           });
           state.lang = $("set-lang").value === "en" ? "en" : "ru";
           document.documentElement.lang = state.lang;
-          toast(msg("Настройки сохранены.", "Settings saved."));
+          applyLocaleStatic();
+          await Promise.all([loadWallets(), loadContacts(), loadHistory(), loadSubscription()]);
+          if (state.me?.isAdmin) {
+            await loadAdmin();
+          }
+          renderSummary();
+          toast(tr("settingsSaved"));
         } catch (e) { toast(e.message || "Error", true); }
       });
 
@@ -530,17 +781,17 @@ function pageHtml(): string {
           const data = await api("/subscription/invoice", "POST", { network: $("pay-network").value });
           const inv = data.invoice;
           $("pay-info").innerHTML =
-            "Invoice: <b>" +
+            tr("pendingInvoice") + ": <b>" +
             inv.amountText +
             " " +
             inv.asset +
-            "</b><div class='copy-block'>Address:<span class='mono addr-pill'>" +
+            "</b><div class='copy-block'>" + tr("address") + ":<span class='mono addr-pill'>" +
             inv.payAddress +
             "</span><button class='btn ghost copy-btn' data-copy='" +
             inv.payAddress +
-            "'>Copy address</button></div>Expires: " +
+            "'>" + tr("copyAddress") + "</button></div>" + tr("expires") + ": " +
             fmtDate(inv.expiresAt);
-          toast("Invoice created.");
+          toast(tr("invoiceCreated"));
         } catch (e) { toast(e.message || "Error", true); }
       });
 
@@ -548,9 +799,9 @@ function pageHtml(): string {
         try {
           const data = await api("/subscription/check", "POST", {});
           if (data.result?.paid > 0) {
-            toast("Payment confirmed.");
+            toast(tr("paymentConfirmed"));
           } else {
-            toast("Payment not found yet.");
+            toast(tr("paymentNotFound"));
           }
           await loadSubscription();
         } catch (e) { toast(e.message || "Error", true); }
@@ -561,7 +812,7 @@ function pageHtml(): string {
           const code = $("promo-code").value.trim();
           await api("/promo/activate", "POST", { code });
           $("promo-code").value = "";
-          toast("Promo activated.");
+          toast(tr("promoActivatedOk"));
           await loadSubscription();
         } catch (e) { toast(e.message || "Error", true); }
       });
@@ -575,7 +826,7 @@ function pageHtml(): string {
             bonusPercent: Number($("admin-promo-percent").value || 0),
             isActive: true
           });
-          toast("Promo code created.");
+          toast(tr("promoCreatedOk"));
           await loadAdmin();
         } catch (e) { toast(e.message || "Error", true); }
       });
@@ -587,7 +838,7 @@ function pageHtml(): string {
             address: $("admin-stop-address").value.trim()
           });
           $("admin-stop-address").value = "";
-          toast("Added to stop list.");
+          toast(tr("addedStopOk"));
           await loadAdmin();
         } catch (e) { toast(e.message || "Error", true); }
       });
@@ -599,7 +850,7 @@ function pageHtml(): string {
             address: $("admin-stop-address").value.trim()
           });
           $("admin-stop-address").value = "";
-          toast("Removed from stop list.");
+          toast(tr("removedStopOk"));
           await loadAdmin();
         } catch (e) { toast(e.message || "Error", true); }
       });
@@ -617,7 +868,7 @@ function pageHtml(): string {
         if (delWallet) {
           try {
             await api("/wallets/" + delWallet, "DELETE");
-            toast("Wallet deleted.");
+            toast(tr("walletDeleted"));
             await Promise.all([loadWallets(), loadSummary()]);
             renderSummary();
           } catch (e) { toast(e.message || "Error", true); }
@@ -627,7 +878,7 @@ function pageHtml(): string {
         if (delContact) {
           try {
             await api("/contacts/" + delContact, "DELETE");
-            toast("Contact deleted.");
+            toast(tr("contactDeleted"));
             await Promise.all([loadContacts(), loadSummary()]);
             renderSummary();
           } catch (e) { toast(e.message || "Error", true); }
@@ -649,7 +900,7 @@ function pageHtml(): string {
             await api("/admin/promo-codes/" + promoId, "PATCH", {
               isActive: target.dataset.nextActive === "1"
             });
-            toast("Promo state updated.");
+            toast(tr("promoStateUpdated"));
             await loadAdmin();
           } catch (e) { toast(e.message || "Error", true); }
           return;
@@ -661,14 +912,14 @@ function pageHtml(): string {
               network: stopNetwork,
               address: target.dataset.stopAddress || ""
             });
-            toast("Removed from stop list.");
+            toast(tr("removedStopOk"));
             await loadAdmin();
           } catch (e) { toast(e.message || "Error", true); }
         }
       });
 
       (async function init() {
-        if (!initData) toast(msg("Откройте Mini App из Telegram для авторизации.", "Open from Telegram to authorize."), true);
+        if (!initData) toast(tr("openFromTelegram"), true);
         try {
           await loadMe();
           applyAccessRestrictions();
@@ -681,10 +932,7 @@ function pageHtml(): string {
           } else {
             await loadSubscription();
             toast(
-              msg(
-                "Сначала оплатите подписку в разделе Cabinet, затем откроется весь функционал.",
-                "Pay subscription in Cabinet first, then full functionality will unlock."
-              ),
+              tr("accessFirst"),
               true
             );
           }
