@@ -59,6 +59,25 @@ function isAdminUser(env: Env, userId: string): boolean {
   return ids.includes(userId);
 }
 
+function hasActiveSubscription(subscription: { status: "inactive" | "active"; expiresAt: string | null }): boolean {
+  if (subscription.status !== "active") {
+    return false;
+  }
+  if (!subscription.expiresAt) {
+    return false;
+  }
+  const expiresMs = Date.parse(subscription.expiresAt);
+  return Number.isFinite(expiresMs) && expiresMs > Date.now();
+}
+
+async function hasFullAccess(env: Env, userId: string): Promise<boolean> {
+  if (isAdminUser(env, userId)) {
+    return true;
+  }
+  const subscription = await getSubscriptionInfo(env, userId);
+  return hasActiveSubscription(subscription);
+}
+
 function requireAdmin(env: Env, userId: string): string {
   if (!isAdminUser(env, userId)) {
     throw new Error("FORBIDDEN_ADMIN_ONLY");
@@ -89,16 +108,48 @@ function mapApiError(error: unknown): string {
   if (message === "FORBIDDEN_ADMIN_ONLY") {
     return "Admin access required.";
   }
+  if (message === "FORBIDDEN_SUBSCRIPTION_REQUIRED") {
+    return "Subscription required. Pay subscription first.";
+  }
   return message;
 }
+
+function isSubscriptionPublicRoute(path: string): boolean {
+  const normalized = path.startsWith("/api/") ? path.slice(4) : path;
+  return (
+    normalized === "/me" ||
+    normalized === "/subscription" ||
+    normalized === "/subscription/invoice" ||
+    normalized === "/subscription/check" ||
+    normalized === "/promo/activate" ||
+    normalized.startsWith("/admin/")
+  );
+}
+
+api.use("*", async (c, next) => {
+  const path = c.req.path;
+  if (isSubscriptionPublicRoute(path)) {
+    await next();
+    return;
+  }
+
+  const userId = getUserId(c);
+  const allowed = await hasFullAccess(c.env, userId);
+  if (!allowed) {
+    return c.json({ error: mapApiError(new Error("FORBIDDEN_SUBSCRIPTION_REQUIRED")) }, 403);
+  }
+  await next();
+});
 
 api.get("/me", async (c) => {
   const userId = getUserId(c);
   const subscription = await getSubscriptionInfo(c.env, userId);
+  const isAdmin = isAdminUser(c.env, userId);
   return c.json({
     me: {
       userId,
-      isAdmin: isAdminUser(c.env, userId)
+      isAdmin,
+      hasFullAccess: isAdmin || hasActiveSubscription(subscription)
     },
     subscription
   });

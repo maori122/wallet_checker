@@ -170,8 +170,11 @@ function pageHtml(): string {
       tg?.expand();
       const initData = tg?.initData || "";
 
-      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null };
+      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null, lang: "ru" };
       const $ = (id) => document.getElementById(id);
+      function msg(ru, en) {
+        return state.lang === "en" ? en : ru;
+      }
       function toast(text, bad = false) {
         const el = $("toast");
         el.textContent = String(text || "");
@@ -193,7 +196,7 @@ function pageHtml(): string {
         if (!v) return "—";
         const d = new Date(v);
         if (Number.isNaN(d.getTime())) return v;
-        return d.toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
+        return d.toLocaleString(state.lang === "en" ? "en-US" : "ru-RU", { timeZone: "Europe/Moscow" });
       }
       function shortAddr(v) {
         if (!v) return "—";
@@ -208,10 +211,14 @@ function pageHtml(): string {
         $(id).appendChild(div);
       }
       function renderSummary() {
-        if (!state.summary) return;
+        $("stat-role").textContent = state.me?.isAdmin ? "Admin" : "User";
+        if (!state.summary) {
+          $("stat-wallets").textContent = "—";
+          $("stat-contacts").textContent = "—";
+          return;
+        }
         $("stat-wallets").textContent = state.summary.walletCount + " / " + state.summary.walletLimit;
         $("stat-contacts").textContent = state.summary.contactCount + " / " + state.summary.contactLimit;
-        $("stat-role").textContent = state.me?.isAdmin ? "Admin" : "User";
       }
       function activateTab(name) {
         document.querySelectorAll(".tab").forEach((el) => el.classList.toggle("active", el.dataset.tab === name));
@@ -221,10 +228,27 @@ function pageHtml(): string {
         const data = await api("/me");
         state.me = data.me;
         state.subscription = data.subscription;
+        if (data.subscription?.status === "active") {
+          const expiresMs = Date.parse(data.subscription.expiresAt || "");
+          if (Number.isFinite(expiresMs) && expiresMs > Date.now()) {
+            state.me.hasFullAccess = true;
+          }
+        }
         if (data.me?.isAdmin) {
           $("admin-tab").classList.remove("hidden");
           $("admin").classList.remove("hidden");
         }
+      }
+      function applyAccessRestrictions() {
+        if (state.me?.isAdmin || state.me?.hasFullAccess) {
+          return;
+        }
+        document.querySelectorAll(".tab").forEach((el) => {
+          if (el.dataset.tab !== "cabinet") {
+            el.classList.add("hidden");
+          }
+        });
+        activateTab("cabinet");
       }
       async function loadSummary() {
         const data = await api("/summary");
@@ -310,7 +334,10 @@ function pageHtml(): string {
       async function loadSettings() {
         const data = await api("/settings");
         const s = data.settings;
-        $("set-lang").value = s.language;
+        const lang = s.language === "en" ? "en" : "ru";
+        state.lang = lang;
+        document.documentElement.lang = lang;
+        $("set-lang").value = lang;
         $("set-btc").value = s.btcThreshold;
         $("set-eth").value = s.ethThreshold;
         $("set-usdt").value = s.usdtThreshold;
@@ -448,7 +475,9 @@ function pageHtml(): string {
             blockchainNotificationsEnabled: true,
             serviceNotificationsEnabled: true
           });
-          toast("Settings saved.");
+          state.lang = $("set-lang").value === "en" ? "en" : "ru";
+          document.documentElement.lang = state.lang;
+          toast(msg("Настройки сохранены.", "Settings saved."));
         } catch (e) { toast(e.message || "Error", true); }
       });
 
@@ -587,12 +616,24 @@ function pageHtml(): string {
       });
 
       (async function init() {
-        if (!initData) toast("Open from Telegram to authorize.", true);
+        if (!initData) toast(msg("Откройте Mini App из Telegram для авторизации.", "Open from Telegram to authorize."), true);
         try {
           await loadMe();
-          await Promise.all([loadSummary(), loadWallets(), loadContacts(), loadHistory(), loadSettings(), loadSubscription()]);
-          if (state.me?.isAdmin) {
-            await loadAdmin();
+          applyAccessRestrictions();
+          if (state.me?.isAdmin || state.me?.hasFullAccess) {
+            await Promise.all([loadSummary(), loadWallets(), loadContacts(), loadHistory(), loadSettings(), loadSubscription()]);
+            if (state.me?.isAdmin) {
+              await loadAdmin();
+            }
+          } else {
+            await loadSubscription();
+            toast(
+              msg(
+                "Сначала оплатите подписку в разделе Cabinet, затем откроется весь функционал.",
+                "Pay subscription in Cabinet first, then full functionality will unlock."
+              ),
+              true
+            );
           }
           renderSummary();
         } catch (e) {
