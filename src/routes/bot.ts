@@ -137,36 +137,36 @@ const I18N = {
     adminStopPickNetwork: "Адрес подходит под несколько сетей. Выберите сеть для стоп-листа.",
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
-    btnWallets: "Мои кошельки",
-    btnContacts: "Знакомые кошельки",
-    btnSettings: "Настройки",
-    btnCabinet: "Личный кабинет",
-    btnReputation: "Моя репутация",
-    btnList: "Список",
-    btnAdd: "Добавить",
-    btnDelete: "Удалить",
-    btnBalance: "Баланс",
-    btnHistory: "История",
-    btnRateTransfer: "Оценить перевод",
+    btnWallets: "👛 Мои кошельки",
+    btnContacts: "👥 Знакомые кошельки",
+    btnSettings: "⚙️ Настройки",
+    btnCabinet: "🪪 Личный кабинет",
+    btnReputation: "⭐ Моя репутация",
+    btnList: "📋 Список",
+    btnAdd: "➕ Добавить",
+    btnDelete: "🗑️ Удалить",
+    btnBalance: "💰 Баланс",
+    btnHistory: "🧾 История",
+    btnRateTransfer: "👍 Оценить перевод",
     btnLike: "👍 Лайк",
     btnDislike: "👎 Дизлайк",
-    btnBack: "Назад",
-    btnMainMenu: "Главное меню",
-    btnLangRu: "Язык: Русский",
-    btnLangEn: "Language: English",
-    btnToggleUsd: "USD оценка ON/OFF",
-    btnToggleChain: "Уведомления по блокчейну ON/OFF",
-    btnToggleService: "Сервисные уведомления ON/OFF",
-    btnSetBtc: "Порог BTC",
-    btnSetEth: "Порог ETH",
-    btnSetUsdt: "Порог USDT",
-    btnTest: "Тестовое уведомление",
-    btnAdminPanel: "Админ панель",
-    btnAdminReputation: "Топ репутации",
-    btnAdminResetReputation: "Обнулить репутацию",
-    btnAdminStopWallets: "Стоп-кошельки",
-    btnAdminLinks: "Логи ссылок",
-    btnActivatePromo: "Активировать промокод",
+    btnBack: "◀️ Назад",
+    btnMainMenu: "🏠 Главное меню",
+    btnLangRu: "🇷🇺 Язык: Русский",
+    btnLangEn: "🇬🇧 Language: English",
+    btnToggleUsd: "💵 USD оценка ON/OFF",
+    btnToggleChain: "🔔 Уведомления по блокчейну ON/OFF",
+    btnToggleService: "🛎️ Сервисные уведомления ON/OFF",
+    btnSetBtc: "₿ Порог BTC",
+    btnSetEth: "Ξ Порог ETH",
+    btnSetUsdt: "💲 Порог USDT",
+    btnTest: "🧪 Тестовое уведомление",
+    btnAdminPanel: "🛡️ Админ панель",
+    btnAdminReputation: "🏆 Топ репутации",
+    btnAdminResetReputation: "♻️ Обнулить репутацию",
+    btnAdminStopWallets: "⛔ Стоп-кошельки",
+    btnAdminLinks: "🔎 Логи ссылок",
+    btnActivatePromo: "🎟️ Активировать промокод",
     askBtc: "Введите порог BTC (например, 0.001).",
     askEth: "Введите порог ETH (например, 0.01).",
     askUsdt: "Введите порог USDT (например, 50).",
@@ -249,36 +249,36 @@ const I18N = {
     adminStopPickNetwork: "This address matches multiple networks. Choose network for stop list.",
     adminLinksEmpty: "Link log is empty.",
     adminLinksTitle: "Who added which links",
-    btnWallets: "My wallets",
-    btnContacts: "Known wallets",
-    btnSettings: "Settings",
-    btnCabinet: "Account",
-    btnReputation: "My reputation",
-    btnList: "List",
-    btnAdd: "Add",
-    btnDelete: "Delete",
-    btnBalance: "Balance",
-    btnHistory: "History",
-    btnRateTransfer: "Rate transfer",
+    btnWallets: "👛 My wallets",
+    btnContacts: "👥 Known wallets",
+    btnSettings: "⚙️ Settings",
+    btnCabinet: "🪪 Account",
+    btnReputation: "⭐ My reputation",
+    btnList: "📋 List",
+    btnAdd: "➕ Add",
+    btnDelete: "🗑️ Delete",
+    btnBalance: "💰 Balance",
+    btnHistory: "🧾 History",
+    btnRateTransfer: "👍 Rate transfer",
     btnLike: "👍 Like",
     btnDislike: "👎 Dislike",
-    btnBack: "Back",
-    btnMainMenu: "Main menu",
-    btnLangRu: "Язык: Русский",
-    btnLangEn: "Language: English",
-    btnToggleUsd: "USD estimate ON/OFF",
-    btnToggleChain: "Blockchain notifications ON/OFF",
-    btnToggleService: "Service notifications ON/OFF",
-    btnSetBtc: "BTC threshold",
-    btnSetEth: "ETH threshold",
-    btnSetUsdt: "USDT threshold",
-    btnTest: "Test notification",
-    btnAdminPanel: "Admin panel",
-    btnAdminReputation: "Top reputation",
-    btnAdminResetReputation: "Reset reputation",
-    btnAdminStopWallets: "Stop wallets",
-    btnAdminLinks: "Links log",
-    btnActivatePromo: "Activate promo code",
+    btnBack: "◀️ Back",
+    btnMainMenu: "🏠 Main menu",
+    btnLangRu: "🇷🇺 Язык: Русский",
+    btnLangEn: "🇬🇧 Language: English",
+    btnToggleUsd: "💵 USD estimate ON/OFF",
+    btnToggleChain: "🔔 Blockchain notifications ON/OFF",
+    btnToggleService: "🛎️ Service notifications ON/OFF",
+    btnSetBtc: "₿ BTC threshold",
+    btnSetEth: "Ξ ETH threshold",
+    btnSetUsdt: "💲 USDT threshold",
+    btnTest: "🧪 Test notification",
+    btnAdminPanel: "🛡️ Admin panel",
+    btnAdminReputation: "🏆 Top reputation",
+    btnAdminResetReputation: "♻️ Reset reputation",
+    btnAdminStopWallets: "⛔ Stop wallets",
+    btnAdminLinks: "🔎 Links log",
+    btnActivatePromo: "🎟️ Activate promo code",
     askBtc: "Enter BTC threshold (example: 0.001).",
     askEth: "Enter ETH threshold (example: 0.01).",
     askUsdt: "Enter USDT threshold (example: 50).",
@@ -471,8 +471,7 @@ function isAdminUser(env: Env, userId: string): boolean {
 function mainKeyboard(language: Language, isAdmin = false): ReplyMarkup {
   const keyboard: string[][] = [
     [t(language, "btnWallets"), t(language, "btnContacts")],
-    [t(language, "btnSettings"), t(language, "btnReputation")],
-    [t(language, "btnCabinet")]
+    [t(language, "btnSettings"), t(language, "btnCabinet")]
   ];
   if (isAdmin) {
     keyboard.push([t(language, "btnAdminPanel")]);
@@ -501,7 +500,7 @@ function sectionKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
       [t(language, "btnList"), t(language, "btnAdd"), t(language, "btnDelete")],
-      [t(language, "btnBalance"), t(language, "btnHistory"), t(language, "btnRateTransfer")],
+      [t(language, "btnBalance"), t(language, "btnHistory")],
       [t(language, "btnMainMenu")]
     ],
     resize_keyboard: true
@@ -510,7 +509,7 @@ function sectionKeyboard(language: Language): ReplyMarkup {
 
 function networkKeyboard(language: Language): ReplyMarkup {
   return {
-    keyboard: [["BTC", "ETH", "BEP20", "TRC20"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
+    keyboard: [["₿ BTC", "Ξ ETH", "🟡 BEP20", "🔴 TRC20"], [t(language, "btnBack"), t(language, "btnMainMenu")]],
     resize_keyboard: true
   };
 }
@@ -525,21 +524,31 @@ function formatNetwork(network: WalletNetwork): "BTC" | "ETH" | "BEP20" | "TRC20
   return network.toUpperCase() as "BTC" | "ETH";
 }
 
-function networkLabel(network: WalletNetwork): "BTC" | "ETH" | "BEP20" | "TRC20" {
-  return formatNetwork(network);
+function networkLabel(network: WalletNetwork): "₿ BTC" | "Ξ ETH" | "🟡 BEP20" | "🔴 TRC20" {
+  if (network === "btc") {
+    return "₿ BTC";
+  }
+  if (network === "eth") {
+    return "Ξ ETH";
+  }
+  if (network === "bsc") {
+    return "🟡 BEP20";
+  }
+  return "🔴 TRC20";
 }
 
 function parseNetworkLabel(value: string): WalletNetwork | null {
-  if (value === "BTC") {
+  const normalized = value.toUpperCase();
+  if (normalized.includes("BTC")) {
     return "btc";
   }
-  if (value === "ETH") {
+  if (normalized.includes("ETH")) {
     return "eth";
   }
-  if (value === "BSC" || value === "BEP20") {
+  if (normalized.includes("BSC") || normalized.includes("BEP20")) {
     return "bsc";
   }
-  if (value === "TRC20") {
+  if (normalized.includes("TRC20")) {
     return "trc20";
   }
   return null;
@@ -569,7 +578,6 @@ function settingsKeyboard(language: Language): ReplyMarkup {
 function adminKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
-      [t(language, "btnAdminReputation"), t(language, "btnAdminResetReputation")],
       [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
       [t(language, "btnMainMenu")]
     ],
