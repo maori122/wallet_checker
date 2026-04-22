@@ -14,7 +14,7 @@ function pageHtml(): string {
     <style>
       :root { --bg:#0f1116; --card:#171a23; --muted:#8f96a8; --text:#e8ecf7; --line:#2a3142; --btn:#4f7cff; --ok:#2ecc71; --bad:#ff5f7a; }
       * { box-sizing: border-box; }
-      body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
       .wrap { max-width: 920px; margin: 0 auto; padding: 14px; }
       .head { position: sticky; top:0; z-index:8; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); padding: 10px 0 12px; border-bottom: 1px solid var(--line); }
       .title { font-size: 22px; font-weight: 800; }
@@ -28,14 +28,15 @@ function pageHtml(): string {
       .tab.active { color: var(--text); border-color: color-mix(in srgb, var(--btn) 60%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--btn) 35%, transparent) inset; }
       .panel { display:none; padding-top: 12px; }
       .panel.active { display:block; }
-      .card { background: var(--card); border:1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+      .card { background: var(--card); border:1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; box-shadow: 0 10px 26px rgba(0,0,0,.18); }
       .card h3 { margin: 0 0 10px; font-size: 15px; }
       .grid { display:grid; gap: 8px; }
       .row { display:grid; gap: 6px; }
       label { font-size: 12px; color: var(--muted); }
       input, select, textarea { width:100%; border:1px solid var(--line); background:#111521; color:var(--text); border-radius: 10px; min-height: 40px; padding: 9px 10px; font-size: 14px; }
       textarea { min-height: 78px; resize: vertical; }
-      .btn { border:0; border-radius: 10px; min-height: 40px; padding: 8px 11px; font-size: 14px; font-weight: 700; cursor:pointer; }
+      .btn { border:0; border-radius: 10px; min-height: 40px; padding: 8px 11px; font-size: 14px; font-weight: 700; cursor:pointer; transition: transform .08s ease, opacity .15s ease; }
+      .btn:active { transform: translateY(1px); opacity: .92; }
       .btn.primary { background: var(--btn); color: white; }
       .btn.ghost { background: transparent; border:1px solid var(--line); color: var(--text); }
       .btn.bad { background: color-mix(in srgb, var(--bad) 20%, transparent); border:1px solid color-mix(in srgb, var(--bad) 45%, transparent); color: #ffb9c6; }
@@ -43,10 +44,14 @@ function pageHtml(): string {
       .btns { display:flex; gap: 8px; flex-wrap: wrap; }
       .item { border-top: 1px solid var(--line); padding: 10px 0; }
       .item:first-child { border-top: 0; padding-top: 0; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; user-select: all; }
       .muted { color: var(--muted); font-size: 12px; }
       .toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #131826; color: var(--text); border:1px solid var(--line); padding: 10px 12px; border-radius: 10px; display:none; z-index: 20; max-width: calc(100% - 20px); }
       .hidden { display:none !important; }
+      .address-line { margin-top: 6px; display:flex; align-items:flex-start; gap: 8px; flex-wrap: wrap; }
+      .addr-pill { display:inline-block; background: #111521; border:1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+      .copy-btn { min-height: 34px; padding: 6px 10px; font-size: 12px; border-radius: 9px; }
+      .copy-block { margin-top: 8px; display:grid; gap: 6px; }
     </style>
   </head>
   <body>
@@ -192,6 +197,30 @@ function pageHtml(): string {
         if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
         return data;
       }
+      async function copyText(value) {
+        const text = String(value || "").trim();
+        if (!text) return false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch {}
+        try {
+          const area = document.createElement("textarea");
+          area.value = text;
+          area.style.position = "fixed";
+          area.style.opacity = "0";
+          document.body.appendChild(area);
+          area.focus();
+          area.select();
+          document.execCommand("copy");
+          document.body.removeChild(area);
+          return true;
+        } catch {
+          return false;
+        }
+      }
       function fmtDate(v) {
         if (!v) return "—";
         const d = new Date(v);
@@ -265,7 +294,12 @@ function pageHtml(): string {
         state.wallets.forEach((w) => {
           append(
             "wallet-list",
-            '<div><b>[' + String(w.network).toUpperCase() + "]</b> <span class='mono'>" + w.address + "</span></div>" +
+            '<div><b>[' + String(w.network).toUpperCase() + "]</b></div>" +
+              "<div class='address-line'><span class='mono addr-pill'>" +
+              w.address +
+              "</span><button class='btn ghost copy-btn' data-copy='" +
+              w.address +
+              "'>Copy</button></div>" +
               "<div class='muted'>Assets: " +
               [w.monitorEthNative ? "ETH" : "", w.monitorUsdtErc20 ? "USDT ERC20" : "", w.monitorUsdtBep20 ? "USDT BEP20" : "", w.monitorUsdtTrc20 ? "USDT TRC20" : ""]
                 .filter(Boolean)
@@ -296,9 +330,11 @@ function pageHtml(): string {
               it.label +
               "</b> [" +
               String(it.network).toUpperCase() +
-              "]</div><div class='mono muted'>" +
+              "]</div><div class='address-line'><span class='mono muted addr-pill'>" +
               it.address +
-              "</div><div class='btns'><button class='btn bad' data-del-contact='" +
+              "</span><button class='btn ghost copy-btn' data-copy='" +
+              it.address +
+              "'>Copy</button></div><div class='btns'><button class='btn bad' data-del-contact='" +
               it.id +
               "'>Delete</button></div>"
           );
@@ -363,9 +399,11 @@ function pageHtml(): string {
             data.activePayment.amountText +
             " " +
             data.activePayment.asset +
-            "</b><br/>Address: <span class='mono'>" +
+            "</b><div class='copy-block'>Address:<span class='mono addr-pill'>" +
             data.activePayment.payAddress +
-            "</span><br/>Expires: " +
+            "</span><button class='btn ghost copy-btn' data-copy='" +
+            data.activePayment.payAddress +
+            "'>Copy address</button></div>Expires: " +
             fmtDate(data.activePayment.expiresAt);
         } else {
           $("pay-info").textContent = "No active invoice.";
@@ -410,9 +448,11 @@ function pageHtml(): string {
             "admin-stop-list",
             "<div>[" +
               String(s.network).toUpperCase() +
-              "] <span class='mono'>" +
+              "]</div><div class='address-line'><span class='mono addr-pill'>" +
               s.address +
-              "</span></div><div class='btns'><button class='btn bad' data-stop-remove='" +
+              "</span><button class='btn ghost copy-btn' data-copy='" +
+              s.address +
+              "'>Copy</button></div><div class='btns'><button class='btn bad' data-stop-remove='" +
               s.network +
               "' data-stop-address='" +
               s.address +
@@ -490,9 +530,11 @@ function pageHtml(): string {
             inv.amountText +
             " " +
             inv.asset +
-            "</b><br/>Address:<br/><span class='mono'>" +
+            "</b><div class='copy-block'>Address:<span class='mono addr-pill'>" +
             inv.payAddress +
-            "</span><br/>Expires: " +
+            "</span><button class='btn ghost copy-btn' data-copy='" +
+            inv.payAddress +
+            "'>Copy address</button></div>Expires: " +
             fmtDate(inv.expiresAt);
           toast("Invoice created.");
         } catch (e) { toast(e.message || "Error", true); }
@@ -561,6 +603,12 @@ function pageHtml(): string {
       document.body.addEventListener("click", async (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
+        const copyEl = target.closest("[data-copy]");
+        if (copyEl instanceof HTMLElement) {
+          const ok = await copyText(copyEl.dataset.copy || "");
+          toast(ok ? msg("Адрес скопирован.", "Address copied.") : msg("Не удалось скопировать адрес.", "Could not copy address."), !ok);
+          return;
+        }
         const delWallet = target.dataset.delWallet;
         if (delWallet) {
           try {
