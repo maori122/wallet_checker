@@ -14,8 +14,8 @@ const PLAN_DURATION_DAYS = 30;
 const SUBSCRIPTION_BASE_AMOUNT_USDT = 5;
 const PAYMENT_REQUEST_TTL_MINUTES = 45;
 const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
-const EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
-const TRON_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY";
+const DEFAULT_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
+const DEFAULT_TRON_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY";
 const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 const BSC_RPC_URLS = ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"] as const;
 
@@ -26,6 +26,14 @@ type PaymentTx = {
   amountUnits: bigint;
   timestampMs: number;
 };
+
+function getEvmPayAddress(env: Env): string {
+  return env.SUBSCRIPTION_EVM_PAY_ADDRESS?.trim() || DEFAULT_EVM_PAY_ADDRESS;
+}
+
+function getTronPayAddress(env: Env): string {
+  return env.SUBSCRIPTION_TRC20_PAY_ADDRESS?.trim() || DEFAULT_TRON_PAY_ADDRESS;
+}
 
 function parseDecimalToUnits(value: string, decimals: number): bigint {
   const clean = value.trim();
@@ -64,9 +72,9 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
   });
 }
 
-async function fetchBscIncomingUsdt(): Promise<PaymentTx[]> {
+async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
   const event = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
-  const toAddress = getAddress(EVM_PAY_ADDRESS);
+  const toAddress = getAddress(getEvmPayAddress(env));
   let lastError: unknown = null;
   for (const rpcUrl of BSC_RPC_URLS) {
     try {
@@ -105,8 +113,9 @@ async function fetchBscIncomingUsdt(): Promise<PaymentTx[]> {
 }
 
 async function fetchTrc20IncomingUsdt(env: Env): Promise<PaymentTx[]> {
+  const tronPayAddress = getTronPayAddress(env);
   const url = `https://api.trongrid.io/v1/accounts/${encodeURIComponent(
-    TRON_PAY_ADDRESS
+    tronPayAddress
   )}/transactions/trc20?limit=200&only_to=true&contract_address=${encodeURIComponent(TRON_USDT_CONTRACT)}`;
   const headers = env.TRONGRID_API_KEY
     ? {
@@ -131,7 +140,7 @@ async function fetchTrc20IncomingUsdt(env: Env): Promise<PaymentTx[]> {
     if ((row.token_info?.address ?? "").toLowerCase() !== TRON_USDT_CONTRACT.toLowerCase()) {
       continue;
     }
-    if ((row.to ?? "").toLowerCase() !== TRON_PAY_ADDRESS.toLowerCase()) {
+    if ((row.to ?? "").toLowerCase() !== tronPayAddress.toLowerCase()) {
       continue;
     }
     if (!row.transaction_id || !row.value) {
@@ -203,7 +212,7 @@ export async function createSubscriptionPaymentInvoice(
     userId,
     network,
     asset: "USDT",
-    payAddress: network === "bsc" ? EVM_PAY_ADDRESS : TRON_PAY_ADDRESS,
+    payAddress: network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env),
     amountText: makeAmountText(userId),
     durationDays: PLAN_DURATION_DAYS,
     expiresAt
@@ -231,7 +240,7 @@ export async function processSubscriptionPayments(
   const hasBsc = pending.some((item) => item.network === "bsc");
   const hasTrc20 = pending.some((item) => item.network === "trc20");
   const [bscTxs, trc20Txs] = await Promise.all([
-    hasBsc ? fetchBscIncomingUsdt() : Promise.resolve([]),
+    hasBsc ? fetchBscIncomingUsdt(env) : Promise.resolve([]),
     hasTrc20 ? fetchTrc20IncomingUsdt(env) : Promise.resolve([])
   ]);
   const usedTxids = new Set<string>();
@@ -280,7 +289,9 @@ export async function processSubscriptionPayments(
   };
 }
 
-export const SUBSCRIPTION_PAYMENT_WALLETS = {
-  evm: EVM_PAY_ADDRESS,
-  trc20: TRON_PAY_ADDRESS
-} as const;
+export function subscriptionPaymentWallets(env: Env): { evm: string; trc20: string } {
+  return {
+    evm: getEvmPayAddress(env),
+    trc20: getTronPayAddress(env)
+  };
+}
