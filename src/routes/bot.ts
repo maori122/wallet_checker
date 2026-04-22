@@ -91,6 +91,8 @@ const I18N = {
     invalidAddress: "Некорректный адрес. Проверьте формат и попробуйте снова.",
     walletAlreadyExists: "Этот кошелек уже добавлен в этой сети.",
     contactAlreadyExists: "Этот знакомый кошелек уже добавлен в этой сети.",
+    walletLimitReached: "Достигнут лимит кошельков (10).",
+    contactLimitReached: "Достигнут лимит знакомых кошельков (50).",
     enterNumeric: "Введите число, например 0.01",
     settingsSaved: "Настройки сохранены.",
     testNotification: "Тестовое уведомление: бот подключен.",
@@ -201,6 +203,8 @@ const I18N = {
     invalidAddress: "Invalid address. Please verify and try again.",
     walletAlreadyExists: "This wallet is already added in this network.",
     contactAlreadyExists: "This known wallet is already added in this network.",
+    walletLimitReached: "Wallet limit reached (10).",
+    contactLimitReached: "Known wallet limit reached (50).",
     enterNumeric: "Enter a number, for example 0.01",
     settingsSaved: "Settings saved.",
     testNotification: "Test notification: bot is connected.",
@@ -433,6 +437,12 @@ function mapCreateError(
   }
   if (entity === "contact" && message === "CONTACT_ALREADY_EXISTS") {
     return t(language, "contactAlreadyExists");
+  }
+  if (entity === "wallet" && message.startsWith("Wallet limit reached")) {
+    return t(language, "walletLimitReached");
+  }
+  if (entity === "contact" && message.startsWith("Contact limit reached")) {
+    return t(language, "contactLimitReached");
   }
   return message;
 }

@@ -36,6 +36,23 @@ function parseBody<T>(schema: z.ZodType<T>, input: unknown): T {
   return result.data;
 }
 
+function mapApiError(error: unknown): string {
+  const message = (error as Error).message ?? "";
+  if (message === "WALLET_ALREADY_EXISTS") {
+    return "This wallet is already added in this network.";
+  }
+  if (message === "CONTACT_ALREADY_EXISTS") {
+    return "This known wallet is already added in this network.";
+  }
+  if (message.startsWith("Wallet limit reached")) {
+    return "Wallet limit reached (10).";
+  }
+  if (message.startsWith("Contact limit reached")) {
+    return "Known wallet limit reached (50).";
+  }
+  return message;
+}
+
 api.get("/wallets", async (c) => {
   const items = await listWallets(c.env, getUserId(c));
   return c.json({ items });
@@ -47,7 +64,7 @@ api.post("/wallets", async (c) => {
     await createWallet(c.env, getUserId(c), body);
     return c.json({ ok: true }, 201);
   } catch (error) {
-    return c.json({ error: (error as Error).message }, 400);
+    return c.json({ error: mapApiError(error) }, 400);
   }
 });
 
@@ -67,7 +84,7 @@ api.post("/contacts", async (c) => {
     await createContact(c.env, getUserId(c), body);
     return c.json({ ok: true }, 201);
   } catch (error) {
-    return c.json({ error: (error as Error).message }, 400);
+    return c.json({ error: mapApiError(error) }, 400);
   }
 });
 
