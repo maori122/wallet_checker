@@ -9,513 +9,148 @@ function pageHtml(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>VOROBEY: Check</title>
+    <title>VOROBEY: Check Mini App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-      :root {
-        --bg-color: #ffffff;
-        --sec-bg-color: #f2f2f7;
-        --text-color: #1c1c1e;
-        --hint-color: #8e8e93;
-        --link-color: #007aff;
-        --btn-color: #007aff;
-        --btn-text-color: #ffffff;
-        --danger-color: #ff3b30;
-        --border: rgba(60, 60, 67, 0.17);
-        --card-radius: 16px;
-      }
-
+      :root { --bg:#0f1116; --card:#171a23; --muted:#8f96a8; --text:#e8ecf7; --line:#2a3142; --btn:#4f7cff; --ok:#2ecc71; --bad:#ff5f7a; }
       * { box-sizing: border-box; }
-      html, body {
-        margin: 0;
-        padding: 0;
-        min-height: 100%;
-        background:
-          radial-gradient(1200px 500px at -10% -10%, rgba(0, 122, 255, 0.08), transparent 55%),
-          linear-gradient(180deg, color-mix(in srgb, var(--sec-bg-color) 85%, white 15%), var(--sec-bg-color));
-        color: var(--text-color);
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Arial, sans-serif;
-        -webkit-font-smoothing: antialiased;
-      }
-      body { padding: 0 0 28px; overflow-x: hidden; }
-      .shell { max-width: 860px; margin: 0 auto; }
-
-      .header {
-        position: sticky;
-        top: 0;
-        z-index: 6;
-        background: color-mix(in srgb, var(--bg-color) 86%, transparent);
-        backdrop-filter: blur(16px) saturate(120%);
-        border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-        padding: 16px 16px 12px;
-        transition: box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
-      }
-      .header.scrolled {
-        border-bottom-color: color-mix(in srgb, var(--border) 95%, transparent);
-        box-shadow: 0 8px 22px rgba(28, 28, 30, 0.08);
-      }
-      .title {
-        margin: 0;
-        font-size: 24px;
-        line-height: 1.1;
-        font-weight: 800;
-        letter-spacing: -0.4px;
-      }
-      .subtitle {
-        margin-top: 5px;
-        font-size: 13px;
-        color: var(--hint-color);
-      }
-      .stats {
-        margin-top: 10px;
-        display: flex;
-        gap: 8px;
-      }
-      .stat {
-        flex: 1;
-        background: color-mix(in srgb, var(--bg-color) 92%, white 8%);
-        border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-        border-radius: 12px;
-        padding: 9px 10px;
-        box-shadow: 0 2px 9px rgba(28, 28, 30, 0.05);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-      }
-      .stat:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(28, 28, 30, 0.08); }
-      .stat-label {
-        font-size: 11px;
-        color: var(--hint-color);
-        text-transform: uppercase;
-        letter-spacing: 0.2px;
-      }
-      .stat-value {
-        margin-top: 2px;
-        font-size: 14px;
-        font-weight: 700;
-      }
-
-      .tabs-wrap {
-        padding: 12px 16px 0;
-        position: sticky;
-        top: 122px;
-        z-index: 5;
-        background: color-mix(in srgb, var(--sec-bg-color) 86%, transparent);
-        backdrop-filter: blur(10px);
-      }
-      .tabs {
-        display: flex;
-        gap: 3px;
-        border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-        border-radius: 12px;
-        background: color-mix(in srgb, var(--sec-bg-color) 90%, white 10%);
-        padding: 3px;
-      }
-      .tab {
-        flex: 1;
-        border-radius: 9px;
-        padding: 9px 8px;
-        text-align: center;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--hint-color);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-      .tab.active {
-        background: var(--bg-color);
-        color: var(--text-color);
-        box-shadow: 0 3px 10px rgba(28, 28, 30, 0.1);
-      }
-
-      .panel {
-        display: none;
-        padding: 12px 16px 0;
-        opacity: 0;
-        transform: translateY(6px) scale(0.995);
-      }
-      .panel.active {
-        display: block;
-      }
-      .panel.active.entered {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-        transition: all 0.24s cubic-bezier(0.2, 0.9, 0.2, 1);
-      }
-      .card {
-        background: color-mix(in srgb, var(--bg-color) 95%, white 5%);
-        border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-        border-radius: var(--card-radius);
-        padding: 14px;
-        margin-bottom: 12px;
-        box-shadow: 0 8px 24px rgba(28, 28, 30, 0.05);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-      }
-      .card:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(28, 28, 30, 0.08); }
-
-      .form-group { margin-bottom: 10px; }
-      label {
-        display: block;
-        font-size: 12px;
-        color: var(--hint-color);
-        margin-bottom: 6px;
-        font-weight: 600;
-      }
-      input, select {
-        width: 100%;
-        border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-        border-radius: 11px;
-        background: color-mix(in srgb, var(--bg-color) 90%, var(--sec-bg-color) 10%);
-        color: var(--text-color);
-        font-size: 16px;
-        min-height: 46px;
-        padding: 11px 12px;
-        outline: none;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
-      }
-      input::placeholder { color: var(--hint-color); }
-      input:focus, select:focus {
-        border-color: color-mix(in srgb, var(--btn-color) 70%, transparent);
-        box-shadow: 0 0 0 3px color-mix(in srgb, var(--btn-color) 16%, transparent);
-      }
-
-      .btn {
-        width: 100%;
-        border: none;
-        border-radius: 11px;
-        min-height: 46px;
-        padding: 11px 12px;
-        font-size: 16px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: transform 0.12s ease, filter 0.2s ease, box-shadow 0.2s ease;
-      }
-      .btn:active { transform: scale(0.985); }
-      .btn.primary {
-        background: linear-gradient(180deg, color-mix(in srgb, var(--btn-color) 90%, white 10%), var(--btn-color));
-        color: var(--btn-text-color);
-        box-shadow: 0 6px 15px color-mix(in srgb, var(--btn-color) 25%, transparent);
-      }
-      .btn.primary:hover { filter: brightness(1.03); }
-      .btn.ghost {
-        width: auto;
-        min-height: 34px;
-        font-size: 14px;
-        font-weight: 600;
-        background: transparent;
-        color: var(--link-color);
-        padding: 8px 11px;
-        border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-      }
-      .btn.danger {
-        width: auto;
-        min-height: 34px;
-        font-size: 14px;
-        font-weight: 600;
-        background: color-mix(in srgb, var(--danger-color) 12%, transparent);
-        color: var(--danger-color);
-        padding: 8px 11px;
-        border: 1px solid color-mix(in srgb, var(--danger-color) 35%, transparent);
-      }
-
-      .list-item {
-        border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-        padding: 12px 0;
-        animation: fade-in 0.22s ease both;
-        animation-delay: var(--stagger, 0ms);
-      }
-      .list-item:last-child { border-bottom: none; }
-      .list-item-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
-      }
-      .list-item-title {
-        font-size: 16px;
-        font-weight: 700;
-        letter-spacing: -0.2px;
-      }
-      .list-item-sub {
-        margin-top: 4px;
-        font-size: 13px;
-        color: var(--hint-color);
-        word-break: break-all;
-      }
-      .list-actions {
-        margin-top: 8px;
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .empty {
-        text-align: center;
-        color: var(--hint-color);
-        font-size: 13px;
-        padding: 12px 0;
-      }
-      .edit-wrap {
-        margin-top: 8px;
-        display: grid;
-        gap: 8px;
-      }
-
-      .switch {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 10px;
-        background: color-mix(in srgb, var(--bg-color) 88%, var(--sec-bg-color) 12%);
-        border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-        border-radius: 12px;
-        padding: 11px;
-        margin-bottom: 8px;
-      }
-      .switch-title { font-size: 14px; font-weight: 700; }
-      .switch-sub { margin-top: 2px; font-size: 12px; color: var(--hint-color); }
-      .switch input[type="checkbox"] {
-        width: 46px;
-        height: 28px;
-        min-height: 28px;
-        appearance: none;
-        -webkit-appearance: none;
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-        background: color-mix(in srgb, var(--hint-color) 26%, transparent);
-        position: relative;
-        cursor: pointer;
-        transition: all 0.22s ease;
-      }
-      .switch input[type="checkbox"]::before {
-        content: "";
-        position: absolute;
-        top: 1px;
-        left: 1px;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        background: #fff;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.22);
-        transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.2, 1);
-      }
-      .switch input[type="checkbox"]:checked {
-        background: var(--btn-color);
-        border-color: color-mix(in srgb, var(--btn-color) 80%, transparent);
-      }
-      .switch input[type="checkbox"]:checked::before {
-        transform: translateX(18px);
-      }
-
-      .skeleton-line {
-        height: 13px;
-        border-radius: 6px;
-        background: color-mix(in srgb, var(--hint-color) 20%, transparent);
-        animation: pulse 1.35s infinite;
-      }
-      .skeleton-line + .skeleton-line { margin-top: 8px; }
-
-      .toast {
-        position: fixed;
-        top: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 20;
-        padding: 9px 13px;
-        font-size: 13px;
-        font-weight: 600;
-        border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-        border-radius: 12px;
-        background: color-mix(in srgb, var(--bg-color) 95%, white 5%);
-        box-shadow: 0 8px 20px rgba(28, 28, 30, 0.12);
-        display: none;
-        max-width: calc(100% - 24px);
-      }
-      .footer {
-        text-align: center;
-        color: var(--hint-color);
-        font-size: 11px;
-        margin-top: 10px;
-        padding: 0 12px;
-      }
-
-      @keyframes pulse {
-        0% { opacity: 0.56; }
-        50% { opacity: 0.25; }
-        100% { opacity: 0.56; }
-      }
-      @keyframes fade-in {
-        from { opacity: 0; transform: translateY(5px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-
-      @media (max-width: 560px) {
-        .title { font-size: 22px; }
-        .tabs-wrap { top: 128px; }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .panel.active.entered,
-        .list-item,
-        .btn,
-        .card,
-        .stat {
-          transition: none !important;
-          animation: none !important;
-        }
-      }
+      body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 14px; }
+      .head { position: sticky; top:0; z-index:8; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); padding: 10px 0 12px; border-bottom: 1px solid var(--line); }
+      .title { font-size: 22px; font-weight: 800; }
+      .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+      .stats { margin-top: 10px; display:flex; gap: 8px; }
+      .stat { flex:1; background: var(--card); border:1px solid var(--line); border-radius: 12px; padding:8px 10px; }
+      .stat .k { color:var(--muted); font-size:11px; text-transform: uppercase; }
+      .stat .v { font-weight: 700; margin-top: 2px; }
+      .tabs { margin-top: 12px; display:grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+      .tab { border:1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 10px; padding: 9px 8px; font-size: 13px; font-weight: 700; text-align:center; cursor:pointer; }
+      .tab.active { color: var(--text); border-color: color-mix(in srgb, var(--btn) 60%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--btn) 35%, transparent) inset; }
+      .panel { display:none; padding-top: 12px; }
+      .panel.active { display:block; }
+      .card { background: var(--card); border:1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+      .card h3 { margin: 0 0 10px; font-size: 15px; }
+      .grid { display:grid; gap: 8px; }
+      .row { display:grid; gap: 6px; }
+      label { font-size: 12px; color: var(--muted); }
+      input, select, textarea { width:100%; border:1px solid var(--line); background:#111521; color:var(--text); border-radius: 10px; min-height: 40px; padding: 9px 10px; font-size: 14px; }
+      textarea { min-height: 78px; resize: vertical; }
+      .btn { border:0; border-radius: 10px; min-height: 40px; padding: 8px 11px; font-size: 14px; font-weight: 700; cursor:pointer; }
+      .btn.primary { background: var(--btn); color: white; }
+      .btn.ghost { background: transparent; border:1px solid var(--line); color: var(--text); }
+      .btn.bad { background: color-mix(in srgb, var(--bad) 20%, transparent); border:1px solid color-mix(in srgb, var(--bad) 45%, transparent); color: #ffb9c6; }
+      .btn.ok { background: color-mix(in srgb, var(--ok) 20%, transparent); border:1px solid color-mix(in srgb, var(--ok) 45%, transparent); color: #b9f7d4; }
+      .btns { display:flex; gap: 8px; flex-wrap: wrap; }
+      .item { border-top: 1px solid var(--line); padding: 10px 0; }
+      .item:first-child { border-top: 0; padding-top: 0; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+      .muted { color: var(--muted); font-size: 12px; }
+      .toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #131826; color: var(--text); border:1px solid var(--line); padding: 10px 12px; border-radius: 10px; display:none; z-index: 20; max-width: calc(100% - 20px); }
+      .hidden { display:none !important; }
     </style>
   </head>
   <body>
     <div id="toast" class="toast"></div>
-    <div class="shell">
-      <header class="header">
-        <h1 class="title" data-i18n="title">VOROBEY: Check</h1>
-        <div class="subtitle" data-i18n="subtitle">Track wallets privately in Telegram.</div>
+    <div class="wrap">
+      <div class="head">
+        <div class="title">VOROBEY: Check</div>
+        <div class="sub">Mini App v2: bot parity + admin tools</div>
         <div class="stats">
-          <div class="stat">
-            <div class="stat-label" data-i18n="walletUsage">Wallets</div>
-            <div class="stat-value" id="wallet-usage">0 / 10</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label" data-i18n="contactUsage">Contacts</div>
-            <div class="stat-value" id="contact-usage">0 / 50</div>
-          </div>
+          <div class="stat"><div class="k">Wallets</div><div id="stat-wallets" class="v">0 / 10</div></div>
+          <div class="stat"><div class="k">Contacts</div><div id="stat-contacts" class="v">0 / 50</div></div>
+          <div class="stat"><div class="k">Role</div><div id="stat-role" class="v">User</div></div>
         </div>
-      </header>
-
-      <div class="tabs-wrap">
-        <div class="tabs">
-          <div class="tab active" data-tab="wallets" data-i18n="tabWallets">Wallets</div>
-          <div class="tab" data-tab="contacts" data-i18n="tabContacts">Contacts</div>
-          <div class="tab" data-tab="settings" data-i18n="tabSettings">Settings</div>
+        <div class="tabs" id="tabs">
+          <div class="tab active" data-tab="wallets">Wallets</div>
+          <div class="tab" data-tab="contacts">Contacts</div>
+          <div class="tab" data-tab="history">History</div>
+          <div class="tab" data-tab="cabinet">Cabinet</div>
+          <div class="tab" data-tab="settings">Settings</div>
+          <div class="tab hidden" data-tab="admin" id="admin-tab">Admin</div>
         </div>
       </div>
 
-      <section id="wallets" class="panel active entered">
+      <section id="wallets" class="panel active">
         <div class="card">
-          <div class="form-group">
-            <label for="wallet-network" data-i18n="network">Network</label>
-            <select id="wallet-network" aria-label="Wallet network">
-              <option value="btc">BTC</option>
-              <option value="eth">ETH</option>
-              <option value="bsc">BSC (BEP-20)</option>
-              <option value="trc20">TRON (TRC-20)</option>
-            </select>
+          <h3>Add tracked wallet</h3>
+          <div class="grid">
+            <div class="row"><label>Address</label><input id="wallet-address" placeholder="0x... / bc1... / T..." /></div>
+            <div class="btns"><button class="btn primary" id="wallet-add">Add wallet</button></div>
           </div>
-          <div id="wallet-asset-options" class="form-group">
-            <label data-i18n="watchAssets">Track assets</label>
-            <div class="switch">
-              <div><div class="switch-title" data-i18n="watchEthNative">ETH native</div></div>
-              <input type="checkbox" id="wallet-track-eth" aria-label="Track ETH native" checked />
-            </div>
-            <div class="switch">
-              <div><div class="switch-title" data-i18n="watchUsdtErc20">USDT ERC-20</div></div>
-              <input type="checkbox" id="wallet-track-usdt-erc20" aria-label="Track USDT ERC-20" checked />
-            </div>
-            <div class="switch">
-              <div><div class="switch-title" data-i18n="watchUsdtBep20">USDT BEP-20</div></div>
-              <input type="checkbox" id="wallet-track-usdt-bep20" aria-label="Track USDT BEP-20" checked />
-            </div>
-            <div class="switch">
-              <div><div class="switch-title" data-i18n="watchUsdtTrc20">USDT TRC-20</div></div>
-              <input type="checkbox" id="wallet-track-usdt-trc20" aria-label="Track USDT TRC-20" checked />
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="wallet-address" data-i18n="address">Address</label>
-            <input id="wallet-address" aria-label="Wallet address" />
-          </div>
-          <button id="wallet-add" class="btn primary" data-i18n="addWallet">Add Wallet</button>
         </div>
-
         <div class="card">
-          <div class="form-group">
-            <label for="wallet-search" data-i18n="searchWallets">Search wallets...</label>
-            <input id="wallet-search" type="search" aria-label="Search wallets" />
-          </div>
+          <h3>Tracked wallets</h3>
           <div id="wallet-list"></div>
         </div>
       </section>
 
       <section id="contacts" class="panel">
         <div class="card">
-          <div class="form-group">
-            <label for="contact-network" data-i18n="network">Network</label>
-            <select id="contact-network" aria-label="Contact network">
-              <option value="btc">BTC</option>
-              <option value="eth">ETH</option>
-              <option value="bsc">BSC (BEP-20)</option>
-              <option value="trc20">TRON (TRC-20)</option>
-            </select>
+          <h3>Add known wallet</h3>
+          <div class="grid">
+            <div class="row"><label>Address</label><input id="contact-address" placeholder="Address" /></div>
+            <div class="row"><label>Label</label><input id="contact-label" placeholder="Label" /></div>
+            <div class="btns"><button class="btn primary" id="contact-add">Add contact</button></div>
           </div>
-          <div class="form-group">
-            <label for="contact-address" data-i18n="address">Address</label>
-            <input id="contact-address" aria-label="Contact address" />
-          </div>
-          <div class="form-group">
-            <label for="contact-label" data-i18n="label">Label</label>
-            <input id="contact-label" aria-label="Contact label" />
-          </div>
-          <button id="contact-add" class="btn primary" data-i18n="addContact">Add Contact</button>
         </div>
+        <div class="card"><h3>Known wallets</h3><div id="contact-list"></div></div>
+      </section>
 
+      <section id="history" class="panel">
+        <div class="card"><h3>Transfer history</h3><div id="history-list"></div></div>
+      </section>
+
+      <section id="cabinet" class="panel">
+        <div class="card"><h3>Subscription</h3><div id="cabinet-subscription"></div></div>
         <div class="card">
-          <div class="form-group">
-            <label for="contact-search" data-i18n="searchContacts">Search contacts...</label>
-            <input id="contact-search" type="search" aria-label="Search contacts" />
+          <h3>Payment</h3>
+          <div class="grid">
+            <div class="row"><label>Network</label><select id="pay-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
+            <div class="btns">
+              <button class="btn primary" id="pay-create">Create invoice</button>
+              <button class="btn ok" id="pay-check">Check payment</button>
+            </div>
+            <div id="pay-info" class="muted"></div>
           </div>
-          <div id="contact-list"></div>
+        </div>
+        <div class="card">
+          <h3>Promo code</h3>
+          <div class="grid">
+            <div class="row"><label>Code</label><input id="promo-code" placeholder="PROMO2026" /></div>
+            <div class="btns"><button class="btn primary" id="promo-activate">Activate promo</button></div>
+          </div>
         </div>
       </section>
 
       <section id="settings" class="panel">
         <div class="card">
-          <div class="form-group">
-            <label for="lang" data-i18n="language">Language</label>
-            <select id="lang" aria-label="Language">
-              <option value="ru">RU</option>
-              <option value="en">EN</option>
-            </select>
+          <h3>Settings</h3>
+          <div class="grid">
+            <div class="row"><label>Language</label><select id="set-lang"><option value="ru">RU</option><option value="en">EN</option></select></div>
+            <div class="row"><label>BTC threshold</label><input id="set-btc" /></div>
+            <div class="row"><label>ETH threshold</label><input id="set-eth" /></div>
+            <div class="row"><label>USDT threshold</label><input id="set-usdt" /></div>
+            <div class="btns"><button class="btn primary" id="settings-save">Save settings</button></div>
           </div>
-          <div class="form-group">
-            <label for="btc-th" data-i18n="btcThreshold">BTC threshold</label>
-            <input id="btc-th" inputmode="decimal" />
-          </div>
-          <div class="form-group">
-            <label for="eth-th" data-i18n="ethThreshold">ETH threshold</label>
-            <input id="eth-th" inputmode="decimal" />
-          </div>
-          <div class="form-group">
-            <label for="usdt-th" data-i18n="usdtThreshold">USDT threshold</label>
-            <input id="usdt-th" inputmode="decimal" />
-          </div>
-
-          <div class="switch">
-            <div>
-              <div class="switch-title" data-i18n="showUsd">Show USD estimate</div>
-              <div class="switch-sub" data-i18n="showUsdHelp">Display approx. fiat value.</div>
-            </div>
-            <input type="checkbox" id="usd-toggle" aria-label="Show USD estimate" />
-          </div>
-
-          <div class="switch">
-            <div>
-              <div class="switch-title" data-i18n="chainNotif">Blockchain alerts</div>
-              <div class="switch-sub" data-i18n="chainNotifHelp">Notify on incoming transfers.</div>
-            </div>
-            <input type="checkbox" id="chain-toggle" aria-label="Blockchain alerts" />
-          </div>
-
-          <div class="switch">
-            <div>
-              <div class="switch-title" data-i18n="serviceNotif">Service alerts</div>
-              <div class="switch-sub" data-i18n="serviceNotifHelp">Bot confirmations and updates.</div>
-            </div>
-            <input type="checkbox" id="service-toggle" aria-label="Service alerts" />
-          </div>
-
-          <button id="settings-save" class="btn primary" data-i18n="saveSettings">Save Changes</button>
         </div>
       </section>
 
-      <div class="footer" data-i18n="footer">Telegram Mini App</div>
+      <section id="admin" class="panel hidden">
+        <div class="card">
+          <h3>Generate promo code</h3>
+          <div class="grid">
+            <div class="row"><label>Code</label><input id="admin-promo-code" placeholder="SPRING2026" /></div>
+            <div class="row"><label>Duration days</label><input id="admin-promo-days" type="number" value="30" /></div>
+            <div class="row"><label>Max activations</label><input id="admin-promo-max" type="number" placeholder="Optional" /></div>
+            <div class="row"><label>Bonus percent (e.g. 20 = +20% days)</label><input id="admin-promo-percent" type="number" value="0" /></div>
+            <div class="btns"><button class="btn primary" id="admin-promo-create">Create promo</button></div>
+          </div>
+        </div>
+        <div class="card"><h3>Promo codes</h3><div id="admin-promo-list"></div></div>
+        <div class="card"><h3>Stop wallets</h3><div id="admin-stop-list"></div></div>
+        <div class="card"><h3>Link audit</h3><div id="admin-link-list"></div></div>
+        <div class="card"><h3>Wallet reputation</h3><div id="admin-reputation-list"></div></div>
+      </section>
     </div>
 
     <script>
@@ -523,551 +158,368 @@ function pageHtml(): string {
       tg?.ready();
       tg?.expand();
       const initData = tg?.initData || "";
-      const header = document.querySelector(".header");
 
-      const state = {
-        lang: "en",
-        wallets: [],
-        contacts: [],
-        summary: null
-      };
-
-      const I18N = {
-        en: {
-          title: "VOROBEY: Check",
-          subtitle: "Track wallets privately in Telegram.",
-          tabWallets: "Wallets",
-          tabContacts: "Contacts",
-          tabSettings: "Settings",
-          network: "Network",
-          address: "Address",
-          label: "Label",
-          addWallet: "Add Wallet",
-          addContact: "Add Contact",
-          saveSettings: "Save Changes",
-          language: "Language",
-          btcThreshold: "BTC threshold",
-          ethThreshold: "ETH threshold",
-          usdtThreshold: "USDT threshold",
-          walletUsage: "Wallets",
-          contactUsage: "Contacts",
-          showUsd: "Show USD estimate",
-          showUsdHelp: "Display approx. fiat value.",
-          chainNotif: "Blockchain alerts",
-          chainNotifHelp: "Notify on incoming transfers.",
-          serviceNotif: "Service alerts",
-          serviceNotifHelp: "Bot confirmations and updates.",
-          watchAssets: "Track assets",
-          watchEthNative: "ETH native",
-          watchUsdtErc20: "USDT ERC-20",
-          watchUsdtBep20: "USDT BEP-20",
-          watchUsdtTrc20: "USDT TRC-20",
-          chooseNetworkPrompt: "Select network for this address",
-          autoDetectedNetwork: "Network detected: ",
-          searchWallets: "Search wallets...",
-          searchContacts: "Search contacts...",
-          empty: "Nothing found",
-          deleted: "Deleted",
-          updated: "Updated",
-          addedWallet: "Wallet added",
-          addedContact: "Contact added",
-          saved: "Settings saved",
-          edit: "Edit",
-          save: "Save",
-          cancel: "Cancel",
-          delete: "Delete",
-          footer: "Telegram Mini App"
-        },
-        ru: {
-          title: "VOROBEY: Check",
-          subtitle: "Приватный трекинг кошельков в Telegram.",
-          tabWallets: "Кошельки",
-          tabContacts: "Контакты",
-          tabSettings: "Настройки",
-          network: "Сеть",
-          address: "Адрес",
-          label: "Имя (метка)",
-          addWallet: "Добавить кошелек",
-          addContact: "Добавить контакт",
-          saveSettings: "Сохранить",
-          language: "Язык",
-          btcThreshold: "Порог BTC",
-          ethThreshold: "Порог ETH",
-          usdtThreshold: "Порог USDT",
-          walletUsage: "Кошельки",
-          contactUsage: "Контакты",
-          showUsd: "Показывать USD оценку",
-          showUsdHelp: "Примерная стоимость в фиате.",
-          chainNotif: "Уведомления сети",
-          chainNotifHelp: "О входящих переводах.",
-          serviceNotif: "Уведомления бота",
-          serviceNotifHelp: "Системные сообщения.",
-          watchAssets: "Отслеживать активы",
-          watchEthNative: "ETH (нативный)",
-          watchUsdtErc20: "USDT ERC-20",
-          watchUsdtBep20: "USDT BEP-20",
-          watchUsdtTrc20: "USDT TRC-20",
-          chooseNetworkPrompt: "Выберите сеть для этого адреса",
-          autoDetectedNetwork: "Сеть определена: ",
-          searchWallets: "Поиск кошельков...",
-          searchContacts: "Поиск контактов...",
-          empty: "Ничего не найдено",
-          deleted: "Удалено",
-          updated: "Обновлено",
-          addedWallet: "Кошелек добавлен",
-          addedContact: "Контакт добавлен",
-          saved: "Настройки сохранены",
-          edit: "Изменить",
-          save: "Сохранить",
-          cancel: "Отмена",
-          delete: "Удалить",
-          footer: "Telegram Mini App"
-        }
-      };
-
-      function t(key) {
-        return (I18N[state.lang] || I18N.en)[key] || key;
+      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null };
+      const $ = (id) => document.getElementById(id);
+      function toast(text, bad = false) {
+        const el = $("toast");
+        el.textContent = String(text || "");
+        el.style.display = "block";
+        el.style.borderColor = bad ? "#7a2d39" : "#2a3142";
+        setTimeout(() => { el.style.display = "none"; }, 2400);
       }
-
-      function haptic(mode = "selection") {
-        const h = tg?.HapticFeedback;
-        if (!h) return;
-        try {
-          if (mode === "selection") h.selectionChanged();
-          if (mode === "success") h.notificationOccurred("success");
-          if (mode === "error") h.notificationOccurred("error");
-          if (mode === "light") h.impactOccurred("light");
-        } catch {
-          // no-op in clients without haptic support
-        }
-      }
-
-      function showToast(text, isError = false) {
-        const toast = document.getElementById("toast");
-        toast.textContent = text;
-        toast.style.display = "block";
-        toast.style.borderColor = isError ? "#ff9eb188" : "var(--border)";
-        haptic(isError ? "error" : "light");
-        setTimeout(() => {
-          toast.style.display = "none";
-        }, 2200);
-      }
-
-      function applyTheme() {
-        const params = tg?.themeParams || {};
-        const root = document.documentElement;
-        root.style.setProperty("--bg-color", params.bg_color || "#ffffff");
-        root.style.setProperty("--sec-bg-color", params.secondary_bg_color || "#f3f3f3");
-        root.style.setProperty("--text-color", params.text_color || "#222222");
-        root.style.setProperty("--hint-color", params.hint_color || "#999999");
-        root.style.setProperty("--link-color", params.link_color || "#2481cc");
-        root.style.setProperty("--btn-color", params.button_color || "#2481cc");
-        root.style.setProperty("--btn-text-color", params.button_text_color || "#ffffff");
-        root.style.setProperty("--danger-color", params.destructive_text_color || "#ff3b30");
-      }
-
-      applyTheme();
-      tg?.onEvent?.("themeChanged", applyTheme);
-
       async function api(path, method = "GET", body = null) {
-        const response = await fetch("/api" + path, {
+        const res = await fetch("/api" + path, {
           method,
-          headers: {
-            "content-type": "application/json",
-            "authorization": "tma " + initData
-          },
+          headers: { "content-type": "application/json", authorization: "tma " + initData },
           body: body ? JSON.stringify(body) : undefined
         });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || ("HTTP " + response.status));
-        }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
         return data;
       }
-
-      function normalizeNetworkInput(value) {
-        const normalized = String(value || "").trim().toLowerCase();
-        if (normalized === "btc" || normalized === "eth" || normalized === "bsc" || normalized === "trc20") {
-          return normalized;
-        }
-        return null;
+      function fmtDate(v) {
+        if (!v) return "—";
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return v;
+        return d.toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
       }
-
-      async function detectNetwork(address) {
-        const data = await api("/detect-network", "POST", { address });
-        const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-        if (candidates.length === 0) {
-          throw new Error(state.lang === "ru" ? "Не удалось определить сеть для адреса." : "Could not detect address network.");
-        }
-        if (candidates.length === 1) {
-          return candidates[0];
-        }
-
-        const promptText = t("chooseNetworkPrompt") + ": " + candidates.join(", ").toUpperCase();
-        const picked = normalizeNetworkInput(window.prompt(promptText, candidates[0]));
-        if (!picked || !candidates.includes(picked)) {
-          throw new Error(state.lang === "ru" ? "Сеть не выбрана." : "Network not selected.");
-        }
-        return picked;
+      function shortAddr(v) {
+        if (!v) return "—";
+        if (v.length < 16) return v;
+        return v.slice(0, 8) + "..." + v.slice(-6);
       }
-
-      function applySummary() {
+      function clearNode(id) { $(id).innerHTML = ""; }
+      function append(id, html) {
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = html;
+        $(id).appendChild(div);
+      }
+      function renderSummary() {
         if (!state.summary) return;
-        document.getElementById("wallet-usage").textContent =
-          state.summary.walletCount + " / " + state.summary.walletLimit;
-        document.getElementById("contact-usage").textContent =
-          state.summary.contactCount + " / " + state.summary.contactLimit;
+        $("stat-wallets").textContent = state.summary.walletCount + " / " + state.summary.walletLimit;
+        $("stat-contacts").textContent = state.summary.contactCount + " / " + state.summary.contactLimit;
+        $("stat-role").textContent = state.me?.isAdmin ? "Admin" : "User";
       }
-
-      function setText() {
-        document.querySelectorAll("[data-i18n]").forEach((el) => {
-          el.textContent = t(el.dataset.i18n);
-        });
-        document.getElementById("wallet-address").placeholder =
-          state.lang === "ru" ? "Вставьте адрес" : "Paste wallet address";
-        document.getElementById("contact-address").placeholder =
-          state.lang === "ru" ? "Адрес отправителя" : "Known sender address";
-        document.getElementById("contact-label").placeholder =
-          state.lang === "ru" ? "Паша" : "Pasha";
-        document.getElementById("wallet-search").placeholder = t("searchWallets");
-        document.getElementById("contact-search").placeholder = t("searchContacts");
+      function activateTab(name) {
+        document.querySelectorAll(".tab").forEach((el) => el.classList.toggle("active", el.dataset.tab === name));
+        document.querySelectorAll(".panel").forEach((el) => el.classList.toggle("active", el.id === name));
       }
-
-      function applyWalletAssetVisibility() {
-        const network = document.getElementById("wallet-network").value;
-        const ethSwitch = document.getElementById("wallet-track-eth").closest(".switch");
-        const usdtErc20Switch = document.getElementById("wallet-track-usdt-erc20").closest(".switch");
-        const usdtBep20Switch = document.getElementById("wallet-track-usdt-bep20").closest(".switch");
-        const usdtTrc20Switch = document.getElementById("wallet-track-usdt-trc20").closest(".switch");
-
-        if (network === "eth") {
-          ethSwitch.style.display = "flex";
-          usdtErc20Switch.style.display = "flex";
-          usdtBep20Switch.style.display = "none";
-          usdtTrc20Switch.style.display = "none";
-        } else if (network === "bsc") {
-          ethSwitch.style.display = "none";
-          usdtErc20Switch.style.display = "none";
-          usdtBep20Switch.style.display = "flex";
-          usdtTrc20Switch.style.display = "none";
-        } else if (network === "trc20") {
-          ethSwitch.style.display = "none";
-          usdtErc20Switch.style.display = "none";
-          usdtBep20Switch.style.display = "none";
-          usdtTrc20Switch.style.display = "flex";
-        } else {
-          ethSwitch.style.display = "none";
-          usdtErc20Switch.style.display = "none";
-          usdtBep20Switch.style.display = "none";
-          usdtTrc20Switch.style.display = "none";
+      async function loadMe() {
+        const data = await api("/me");
+        state.me = data.me;
+        state.subscription = data.subscription;
+        if (data.me?.isAdmin) {
+          $("admin-tab").classList.remove("hidden");
+          $("admin").classList.remove("hidden");
         }
       }
-
-      function activatePanel(name, withHaptic = true) {
-        document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach((x) => {
-          x.classList.remove("active");
-          x.classList.remove("entered");
-        });
-        document.querySelector('.tab[data-tab="' + name + '"]').classList.add("active");
-        const panel = document.getElementById(name);
-        panel.classList.add("active");
-        requestAnimationFrame(() => panel.classList.add("entered"));
-        if (withHaptic) {
-          haptic("selection");
-        }
-      }
-
-      function renderSkeleton(targetId, rows = 2) {
-        const root = document.getElementById(targetId);
-        root.innerHTML = "";
-        for (let i = 0; i < rows; i += 1) {
-          const wrap = document.createElement("div");
-          wrap.className = "list-item";
-          wrap.innerHTML = '<div class="skeleton-line" style="width:50%"></div><div class="skeleton-line"></div>';
-          root.appendChild(wrap);
-        }
-      }
-
-      function searchable(items, getter, query) {
-        const q = query.trim().toLowerCase();
-        if (!q) return items;
-        return items.filter((x) => getter(x).toLowerCase().includes(q));
-      }
-
-      function emptyNode() {
-        const el = document.createElement("div");
-        el.className = "empty";
-        el.textContent = t("empty");
-        return el;
-      }
-
       async function loadSummary() {
         const data = await api("/summary");
         state.summary = data.summary;
-        applySummary();
       }
-
       async function loadWallets() {
-        renderSkeleton("wallet-list");
         const data = await api("/wallets");
-        state.wallets = data.items;
-        renderWallets();
-        await loadSummary();
-      }
-
-      function renderWallets() {
-        const root = document.getElementById("wallet-list");
-        root.innerHTML = "";
-        const filtered = searchable(
-          state.wallets,
-          (x) => x.network + " " + x.address,
-          document.getElementById("wallet-search").value
-        );
-        if (filtered.length === 0) {
-          root.appendChild(emptyNode());
+        state.wallets = data.items || [];
+        clearNode("wallet-list");
+        if (!state.wallets.length) {
+          append("wallet-list", '<div class="muted">No wallets yet.</div>');
           return;
         }
-
-        filtered.forEach((item, index) => {
-          const row = document.createElement("div");
-          row.className = "list-item";
-          row.style.setProperty("--stagger", (index * 22) + "ms");
-          const trackedAssets = [];
-          if (item.network === "btc") trackedAssets.push("BTC");
-          if (item.monitorEthNative) trackedAssets.push("ETH");
-          if (item.monitorUsdtErc20) trackedAssets.push("USDT ERC-20");
-          if (item.monitorUsdtBep20) trackedAssets.push("USDT BEP-20");
-          if (item.monitorUsdtTrc20) trackedAssets.push("USDT TRC-20");
-          row.innerHTML =
-            '<div class="list-item-top"><div class="list-item-title">' +
-            item.network.toUpperCase() +
-            "</div></div>" +
-            '<div class="list-item-sub">' +
-            item.address +
-            "</div>" +
-            '<div class="list-item-sub">' +
-            trackedAssets.join(" · ") +
-            "</div>";
-          const actions = document.createElement("div");
-          actions.className = "list-actions";
-          const del = document.createElement("button");
-          del.className = "btn danger";
-          del.textContent = t("delete");
-          del.addEventListener("click", async () => {
-            await api("/wallets/" + item.id, "DELETE");
-            showToast(t("deleted"));
-            await loadWallets();
-          });
-          actions.appendChild(del);
-          row.appendChild(actions);
-          root.appendChild(row);
+        state.wallets.forEach((w) => {
+          append(
+            "wallet-list",
+            '<div><b>[' + String(w.network).toUpperCase() + "]</b> <span class='mono'>" + w.address + "</span></div>" +
+              "<div class='muted'>Assets: " +
+              [w.monitorEthNative ? "ETH" : "", w.monitorUsdtErc20 ? "USDT ERC20" : "", w.monitorUsdtBep20 ? "USDT BEP20" : "", w.monitorUsdtTrc20 ? "USDT TRC20" : ""]
+                .filter(Boolean)
+                .join(", ") +
+              "</div>" +
+              "<div class='btns'><button class='btn ghost' data-bal='" +
+              w.id +
+              "'>Balance</button><button class='btn bad' data-del-wallet='" +
+              w.id +
+              "'>Delete</button></div><div id='bal-" +
+              w.id +
+              "' class='muted'></div>"
+          );
         });
       }
-
       async function loadContacts() {
-        renderSkeleton("contact-list");
         const data = await api("/contacts");
-        state.contacts = data.items;
-        renderContacts();
-        await loadSummary();
-      }
-
-      function renderContacts() {
-        const root = document.getElementById("contact-list");
-        root.innerHTML = "";
-        const filtered = searchable(
-          state.contacts,
-          (x) => x.label + " " + x.address + " " + x.network,
-          document.getElementById("contact-search").value
-        );
-        if (filtered.length === 0) {
-          root.appendChild(emptyNode());
+        state.contacts = data.items || [];
+        clearNode("contact-list");
+        if (!state.contacts.length) {
+          append("contact-list", '<div class="muted">No contacts yet.</div>');
           return;
         }
-
-        filtered.forEach((item, index) => {
-          const row = document.createElement("div");
-          row.className = "list-item";
-          row.style.setProperty("--stagger", (index * 22) + "ms");
-          row.innerHTML =
-            '<div class="list-item-top"><div class="list-item-title">' +
-            item.label +
-            " · " +
-            item.network.toUpperCase() +
-            "</div></div>" +
-            '<div class="list-item-sub">' +
-            item.address +
-            "</div>";
-
-          const actions = document.createElement("div");
-          actions.className = "list-actions";
-
-          const edit = document.createElement("button");
-          edit.className = "btn ghost";
-          edit.textContent = t("edit");
-          edit.addEventListener("click", () => {
-            const wrap = document.createElement("div");
-            wrap.className = "edit-wrap";
-            const input = document.createElement("input");
-            input.value = item.label;
-            const save = document.createElement("button");
-            save.className = "btn primary";
-            save.textContent = t("save");
-            save.addEventListener("click", async () => {
-              await api("/contacts/" + item.id, "PATCH", { label: input.value.trim() });
-              showToast(t("updated"));
-              await loadContacts();
-            });
-            const cancel = document.createElement("button");
-            cancel.className = "btn ghost";
-            cancel.textContent = t("cancel");
-            cancel.addEventListener("click", renderContacts);
-            wrap.appendChild(input);
-            wrap.appendChild(save);
-            wrap.appendChild(cancel);
-            row.appendChild(wrap);
-          });
-
-          const del = document.createElement("button");
-          del.className = "btn danger";
-          del.textContent = t("delete");
-          del.addEventListener("click", async () => {
-            await api("/contacts/" + item.id, "DELETE");
-            showToast(t("deleted"));
-            await loadContacts();
-          });
-
-          actions.appendChild(edit);
-          actions.appendChild(del);
-          row.appendChild(actions);
-          root.appendChild(row);
+        state.contacts.forEach((it) => {
+          append(
+            "contact-list",
+            "<div><b>" +
+              it.label +
+              "</b> [" +
+              String(it.network).toUpperCase() +
+              "]</div><div class='mono muted'>" +
+              it.address +
+              "</div><div class='btns'><button class='btn bad' data-del-contact='" +
+              it.id +
+              "'>Delete</button></div>"
+          );
         });
       }
-
+      async function loadHistory() {
+        const data = await api("/transfer-history?limit=100");
+        state.history = data.items || [];
+        clearNode("history-list");
+        if (!state.history.length) {
+          append("history-list", '<div class="muted">No transfers yet.</div>');
+          return;
+        }
+        state.history.forEach((h) => {
+          append(
+            "history-list",
+            "<div><b>" +
+              h.asset +
+              "</b> · " +
+              h.amount +
+              " · " +
+              h.direction +
+              "</div><div class='muted'>[" +
+              String(h.network).toUpperCase() +
+              "] " +
+              shortAddr(h.counterpartyAddress || h.fromAddress || "") +
+              " · " +
+              fmtDate(h.createdAt) +
+              "</div>"
+          );
+        });
+      }
       async function loadSettings() {
         const data = await api("/settings");
         const s = data.settings;
-        state.lang = s.language;
-        document.getElementById("lang").value = s.language;
-        document.getElementById("btc-th").value = s.btcThreshold;
-        document.getElementById("eth-th").value = s.ethThreshold;
-        document.getElementById("usdt-th").value = s.usdtThreshold;
-        document.getElementById("usd-toggle").checked = s.showUsdEstimate;
-        document.getElementById("chain-toggle").checked = s.blockchainNotificationsEnabled;
-        document.getElementById("service-toggle").checked = s.serviceNotificationsEnabled;
-        setText();
+        $("set-lang").value = s.language;
+        $("set-btc").value = s.btcThreshold;
+        $("set-eth").value = s.ethThreshold;
+        $("set-usdt").value = s.usdtThreshold;
+      }
+      async function loadSubscription() {
+        const data = await api("/subscription");
+        state.subscription = data.subscription;
+        state.payment = data.activePayment;
+        const s = data.subscription;
+        $("cabinet-subscription").innerHTML =
+          "<div><b>Plan:</b> <code>" +
+          s.planCode +
+          "</code></div><div><b>Status:</b> " +
+          s.status +
+          "</div><div><b>Valid until:</b> " +
+          fmtDate(s.expiresAt) +
+          "</div><div><b>Promo activations:</b> " +
+          s.promoActivations +
+          "</div>";
+        if (data.activePayment) {
+          $("pay-info").innerHTML =
+            "Pending invoice: <b>" +
+            data.activePayment.amountText +
+            " " +
+            data.activePayment.asset +
+            "</b><br/>Address: <span class='mono'>" +
+            data.activePayment.payAddress +
+            "</span><br/>Expires: " +
+            fmtDate(data.activePayment.expiresAt);
+        } else {
+          $("pay-info").textContent = "No active invoice.";
+        }
+      }
+      async function loadAdmin() {
+        if (!state.me?.isAdmin) return;
+        const [promo, stop, links, rep] = await Promise.all([
+          api("/admin/promo-codes"),
+          api("/admin/stopped-wallets"),
+          api("/admin/link-audit"),
+          api("/admin/wallet-reputation")
+        ]);
+        clearNode("admin-promo-list");
+        (promo.items || []).forEach((p) => {
+          append(
+            "admin-promo-list",
+            "<div><b>" +
+              p.code +
+              "</b> · " +
+              p.durationDays +
+              "d · +" +
+              p.bonusPercent +
+              "% · " +
+              (p.isActive ? "active" : "disabled") +
+              "</div><div class='muted'>uses: " +
+              p.activationsCount +
+              " / " +
+              (p.maxActivations ?? "∞") +
+              "</div>"
+          );
+        });
+        clearNode("admin-stop-list");
+        (stop.items || []).forEach((s) => append("admin-stop-list", "<div>[" + String(s.network).toUpperCase() + "] <span class='mono'>" + s.address + "</span></div>"));
+        if (!(stop.items || []).length) append("admin-stop-list", '<div class="muted">No stop wallets.</div>');
+        clearNode("admin-link-list");
+        (links.items || []).forEach((it) =>
+          append("admin-link-list", "<div>" + it.entityType + " · [" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>user " + it.actorUserId + " · " + fmtDate(it.createdAt) + "</div>")
+        );
+        if (!(links.items || []).length) append("admin-link-list", '<div class="muted">No link logs.</div>');
+        clearNode("admin-reputation-list");
+        (rep.items || []).forEach((it) =>
+          append("admin-reputation-list", "<div>[" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>score: " + it.score + " (👍 " + it.likesCount + " / 👎 " + it.dislikesCount + ")</div>")
+        );
       }
 
-      document.querySelectorAll(".tab").forEach((tab) => {
-        tab.addEventListener("click", () => activatePanel(tab.dataset.tab));
-      });
+      document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => activateTab(tab.dataset.tab)));
 
-      document.getElementById("wallet-network").addEventListener("change", () => {
-        applyWalletAssetVisibility();
-        haptic("selection");
-      });
-
-      window.addEventListener("scroll", () => {
-        if (!header) return;
-        if (window.scrollY > 12) {
-          header.classList.add("scrolled");
-        } else {
-          header.classList.remove("scrolled");
-        }
-      });
-
-      document.getElementById("wallet-add").addEventListener("click", async () => {
-        haptic("light");
+      $("wallet-add").addEventListener("click", async () => {
         try {
-          const address = document.getElementById("wallet-address").value.trim();
-          const detectedNetwork = await detectNetwork(address);
-          document.getElementById("wallet-network").value = detectedNetwork;
-          applyWalletAssetVisibility();
-
-          await api("/wallets", "POST", {
-            network: detectedNetwork,
-            address,
-            monitorEthNative: document.getElementById("wallet-track-eth").checked,
-            monitorUsdtErc20: document.getElementById("wallet-track-usdt-erc20").checked,
-            monitorUsdtBep20: document.getElementById("wallet-track-usdt-bep20").checked,
-            monitorUsdtTrc20: document.getElementById("wallet-track-usdt-trc20").checked
-          });
-          document.getElementById("wallet-address").value = "";
-          showToast(t("addedWallet") + " · " + t("autoDetectedNetwork") + detectedNetwork.toUpperCase());
-          await loadWallets();
-        } catch (error) {
-          showToast(error.message, true);
-        }
+          const address = $("wallet-address").value.trim();
+          const detected = await api("/detect-network", "POST", { address });
+          const candidates = detected.candidates || [];
+          if (!candidates.length) throw new Error("Could not detect network.");
+          const network = candidates[0];
+          await api("/wallets", "POST", { network, address, monitorEthNative: true, monitorUsdtErc20: true, monitorUsdtBep20: true, monitorUsdtTrc20: true });
+          $("wallet-address").value = "";
+          toast("Wallet added.");
+          await Promise.all([loadWallets(), loadSummary()]);
+          renderSummary();
+        } catch (e) { toast(e.message || "Error", true); }
       });
 
-      document.getElementById("contact-add").addEventListener("click", async () => {
-        haptic("light");
+      $("contact-add").addEventListener("click", async () => {
         try {
-          const address = document.getElementById("contact-address").value.trim();
-          const detectedNetwork = await detectNetwork(address);
-          document.getElementById("contact-network").value = detectedNetwork;
-
-          await api("/contacts", "POST", {
-            network: detectedNetwork,
-            address,
-            label: document.getElementById("contact-label").value.trim()
-          });
-          document.getElementById("contact-address").value = "";
-          document.getElementById("contact-label").value = "";
-          showToast(t("addedContact") + " · " + t("autoDetectedNetwork") + detectedNetwork.toUpperCase());
-          await loadContacts();
-        } catch (error) {
-          showToast(error.message, true);
-        }
+          const address = $("contact-address").value.trim();
+          const label = $("contact-label").value.trim();
+          const detected = await api("/detect-network", "POST", { address });
+          const candidates = detected.candidates || [];
+          if (!candidates.length) throw new Error("Could not detect network.");
+          await api("/contacts", "POST", { network: candidates[0], address, label });
+          $("contact-address").value = "";
+          $("contact-label").value = "";
+          toast("Contact added.");
+          await Promise.all([loadContacts(), loadSummary()]);
+          renderSummary();
+        } catch (e) { toast(e.message || "Error", true); }
       });
 
-      document.getElementById("settings-save").addEventListener("click", async () => {
-        haptic("light");
+      $("settings-save").addEventListener("click", async () => {
         try {
           await api("/settings", "PUT", {
-            language: document.getElementById("lang").value,
-            btcThreshold: document.getElementById("btc-th").value.trim(),
-            ethThreshold: document.getElementById("eth-th").value.trim(),
-            usdtThreshold: document.getElementById("usdt-th").value.trim(),
-            showUsdEstimate: document.getElementById("usd-toggle").checked,
-            blockchainNotificationsEnabled: document.getElementById("chain-toggle").checked,
-            serviceNotificationsEnabled: document.getElementById("service-toggle").checked
+            language: $("set-lang").value,
+            btcThreshold: $("set-btc").value.trim(),
+            ethThreshold: $("set-eth").value.trim(),
+            usdtThreshold: $("set-usdt").value.trim(),
+            showUsdEstimate: true,
+            blockchainNotificationsEnabled: true,
+            serviceNotificationsEnabled: true
           });
-          state.lang = document.getElementById("lang").value;
-          setText();
-          showToast(t("saved"));
-        } catch (error) {
-          showToast(error.message, true);
+          toast("Settings saved.");
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("pay-create").addEventListener("click", async () => {
+        try {
+          const data = await api("/subscription/invoice", "POST", { network: $("pay-network").value });
+          const inv = data.invoice;
+          $("pay-info").innerHTML =
+            "Invoice: <b>" +
+            inv.amountText +
+            " " +
+            inv.asset +
+            "</b><br/>Address:<br/><span class='mono'>" +
+            inv.payAddress +
+            "</span><br/>Expires: " +
+            fmtDate(inv.expiresAt);
+          toast("Invoice created.");
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("pay-check").addEventListener("click", async () => {
+        try {
+          const data = await api("/subscription/check", "POST", {});
+          if (data.result?.paid > 0) {
+            toast("Payment confirmed.");
+          } else {
+            toast("Payment not found yet.");
+          }
+          await loadSubscription();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("promo-activate").addEventListener("click", async () => {
+        try {
+          const code = $("promo-code").value.trim();
+          await api("/promo/activate", "POST", { code });
+          $("promo-code").value = "";
+          toast("Promo activated.");
+          await loadSubscription();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("admin-promo-create").addEventListener("click", async () => {
+        try {
+          await api("/admin/promo-codes", "POST", {
+            code: $("admin-promo-code").value.trim(),
+            durationDays: Number($("admin-promo-days").value || 30),
+            maxActivations: $("admin-promo-max").value ? Number($("admin-promo-max").value) : null,
+            bonusPercent: Number($("admin-promo-percent").value || 0),
+            isActive: true
+          });
+          toast("Promo code created.");
+          await loadAdmin();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      document.body.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const delWallet = target.dataset.delWallet;
+        if (delWallet) {
+          try {
+            await api("/wallets/" + delWallet, "DELETE");
+            toast("Wallet deleted.");
+            await Promise.all([loadWallets(), loadSummary()]);
+            renderSummary();
+          } catch (e) { toast(e.message || "Error", true); }
+          return;
         }
-      });
-
-      ["wallet-search", "contact-search"].forEach((id) => {
-        let timer = null;
-        document.getElementById(id).addEventListener("input", () => {
-          if (timer) clearTimeout(timer);
-          timer = setTimeout(() => {
-            if (id === "wallet-search") renderWallets();
-            if (id === "contact-search") renderContacts();
-          }, 140);
-        });
-      });
-
-      ["usd-toggle", "chain-toggle", "service-toggle"].forEach((id) => {
-        const el = document.getElementById(id);
-        el.addEventListener("change", () => haptic("selection"));
+        const delContact = target.dataset.delContact;
+        if (delContact) {
+          try {
+            await api("/contacts/" + delContact, "DELETE");
+            toast("Contact deleted.");
+            await Promise.all([loadContacts(), loadSummary()]);
+            renderSummary();
+          } catch (e) { toast(e.message || "Error", true); }
+          return;
+        }
+        const walletId = target.dataset.bal;
+        if (walletId) {
+          try {
+            const data = await api("/wallets/" + walletId + "/balance");
+            const lines = (data.balance?.entries || []).map((x) => "• " + x.asset + ": " + x.amount).join("<br/>");
+            const source = data.balance?.source === "cache" ? " (cache)" : "";
+            $("bal-" + walletId).innerHTML = lines + source;
+          } catch (e) { toast(e.message || "Error", true); }
+        }
       });
 
       (async function init() {
-        applyWalletAssetVisibility();
-        activatePanel("wallets", false);
-        if (!initData) {
-          showToast("Open from Telegram to authorize", true);
-        }
+        if (!initData) toast("Open from Telegram to authorize.", true);
         try {
-          await Promise.all([loadSettings(), loadWallets(), loadContacts(), loadSummary()]);
-        } catch (error) {
-          showToast(error.message, true);
+          await loadMe();
+          await Promise.all([loadSummary(), loadWallets(), loadContacts(), loadHistory(), loadSettings(), loadSubscription()]);
+          if (state.me?.isAdmin) {
+            await loadAdmin();
+          }
+          renderSummary();
+        } catch (e) {
+          toast(e.message || "Init failed", true);
         }
       })();
     </script>

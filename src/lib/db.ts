@@ -105,6 +105,17 @@ export type SubscriptionInfo = {
   promoActivations: number;
 };
 
+export type PromoCodeEntry = {
+  id: string;
+  code: string;
+  durationDays: number;
+  bonusPercent: number;
+  maxActivations: number | null;
+  activationsCount: number;
+  isActive: boolean;
+  createdAt: string;
+};
+
 export type WalletReputationEntry = {
   network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
@@ -1329,6 +1340,110 @@ export async function activatePaidSubscription(
   return getSubscriptionInfo(env, userId);
 }
 
+export async function createPromoCodeEntry(
+  env: Env,
+  payload: {
+    code: string;
+    durationDays: number;
+    maxActivations: number | null;
+    bonusPercent: number;
+    isActive: boolean;
+  }
+): Promise<PromoCodeEntry> {
+  const normalizedCode = payload.code.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{4,64}$/.test(normalizedCode)) {
+    throw new Error("PROMO_CODE_BAD_FORMAT");
+  }
+  const durationDays = Math.max(1, Math.floor(payload.durationDays));
+  const maxActivations =
+    payload.maxActivations === null ? null : Math.max(1, Math.floor(payload.maxActivations));
+  const bonusPercent = Math.max(0, Math.min(1000, Math.floor(payload.bonusPercent)));
+  try {
+    await env.DB.prepare(
+      `INSERT INTO promo_codes (
+        id,
+        code,
+        duration_days,
+        max_activations,
+        activations_count,
+        is_active,
+        bonus_percent,
+        created_at
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)`
+    )
+      .bind(normalizedCode, durationDays, maxActivations, payload.isActive ? 1 : 0, bonusPercent)
+      .run();
+  } catch (error) {
+    const message = (error as Error).message ?? "";
+    if (message.includes("promo_codes.code")) {
+      throw new Error("PROMO_CODE_EXISTS");
+    }
+    throw error;
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT id, code, duration_days, bonus_percent, max_activations, activations_count, is_active, created_at
+     FROM promo_codes
+     WHERE code = ?
+     LIMIT 1`
+  )
+    .bind(normalizedCode)
+    .first<{
+      id: string;
+      code: string;
+      duration_days: number;
+      bonus_percent: number;
+      max_activations: number | null;
+      activations_count: number;
+      is_active: number;
+      created_at: string;
+    }>();
+  if (!row) {
+    throw new Error("PROMO_CODE_CREATE_FAILED");
+  }
+  return {
+    id: row.id,
+    code: row.code,
+    durationDays: row.duration_days,
+    bonusPercent: row.bonus_percent ?? 0,
+    maxActivations: row.max_activations,
+    activationsCount: row.activations_count,
+    isActive: row.is_active === 1,
+    createdAt: row.created_at
+  };
+}
+
+export async function listPromoCodeEntries(env: Env, limit = 50): Promise<PromoCodeEntry[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 500));
+  const result = await env.DB.prepare(
+    `SELECT id, code, duration_days, bonus_percent, max_activations, activations_count, is_active, created_at
+     FROM promo_codes
+     ORDER BY created_at DESC
+     LIMIT ?`
+  )
+    .bind(safeLimit)
+    .all<{
+      id: string;
+      code: string;
+      duration_days: number;
+      bonus_percent: number;
+      max_activations: number | null;
+      activations_count: number;
+      is_active: number;
+      created_at: string;
+    }>();
+  return result.results.map((row) => ({
+    id: row.id,
+    code: row.code,
+    durationDays: row.duration_days,
+    bonusPercent: row.bonus_percent ?? 0,
+    maxActivations: row.max_activations,
+    activationsCount: row.activations_count,
+    isActive: row.is_active === 1,
+    createdAt: row.created_at
+  }));
+}
+
 export async function activatePromoCode(
   env: Env,
   userId: string,
@@ -1341,7 +1456,7 @@ export async function activatePromoCode(
   }
 
   const promo = await env.DB.prepare(
-    `SELECT id, duration_days, max_activations, activations_count, is_active
+    `SELECT id, duration_days, max_activations, activations_count, is_active, bonus_percent
      FROM promo_codes
      WHERE code = ?
      LIMIT 1`
@@ -1353,6 +1468,7 @@ export async function activatePromoCode(
       max_activations: number | null;
       activations_count: number;
       is_active: number;
+      bonus_percent: number;
     }>();
 
   if (!promo || promo.is_active !== 1) {
@@ -1375,7 +1491,11 @@ export async function activatePromoCode(
   const nowMs = Date.now();
   const currentExpiresMs = current.expiresAt ? Date.parse(current.expiresAt) : Number.NaN;
   const baseMs = Number.isFinite(currentExpiresMs) && currentExpiresMs > nowMs ? currentExpiresMs : nowMs;
-  const nextExpiresAt = new Date(baseMs + promo.duration_days * 24 * 60 * 60 * 1000).toISOString();
+  const effectiveDurationDays = Math.max(
+    1,
+    Math.floor(promo.duration_days + (promo.duration_days * (promo.bonus_percent ?? 0)) / 100)
+  );
+  const nextExpiresAt = new Date(baseMs + effectiveDurationDays * 24 * 60 * 60 * 1000).toISOString();
 
   await env.DB.prepare(
     `UPDATE user_subscriptions
@@ -1395,10 +1515,11 @@ export async function activatePromoCode(
       user_id,
       code,
       duration_days,
+      bonus_percent,
       activated_at
-    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   )
-    .bind(promo.id, userId, code, promo.duration_days)
+    .bind(promo.id, userId, code, promo.duration_days, promo.bonus_percent ?? 0)
     .run();
 
   await env.DB.prepare(
