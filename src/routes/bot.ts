@@ -97,13 +97,14 @@ const I18N = {
     adminResetAsk: "Введите Telegram user id для обнуления репутации.",
     adminResetDone: "Репутация пользователя обнулена.",
     adminStopHelp:
-      "Управление стоп-кошельками:\nlist\nadd <NETWORK> <ADDRESS>\ndel <NETWORK> <ADDRESS>",
+      "Управление стоп-кошельками:\nlist\n<ADDRESS> (добавить в стоп)\ndel <ADDRESS> (удалить из стоп)",
     adminStopAdded: "Кошелек добавлен в стоп-лист.",
     adminStopRemoved: "Кошелек удален из стоп-листа.",
     adminStopNotFound: "Кошелек не найден в стоп-листе.",
     adminStopEmpty: "Стоп-лист пуст.",
     adminStopListTitle: "Стоп-кошельки",
     adminStopInvalidCommand: "Неверная команда. Используйте list/add/del.",
+    adminStopPickNetwork: "Адрес подходит под несколько сетей. Выберите сеть для стоп-листа.",
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
     btnWallets: "Мои кошельки",
@@ -181,13 +182,14 @@ const I18N = {
     adminResetAsk: "Send Telegram user id to reset reputation.",
     adminResetDone: "User reputation reset.",
     adminStopHelp:
-      "Stop-wallet management:\nlist\nadd <NETWORK> <ADDRESS>\ndel <NETWORK> <ADDRESS>",
+      "Stop-wallet management:\nlist\n<ADDRESS> (add to stop list)\ndel <ADDRESS> (remove from stop list)",
     adminStopAdded: "Wallet added to stop list.",
     adminStopRemoved: "Wallet removed from stop list.",
     adminStopNotFound: "Wallet was not found in stop list.",
     adminStopEmpty: "Stop list is empty.",
     adminStopListTitle: "Stop wallets",
     adminStopInvalidCommand: "Invalid command. Use list/add/del.",
+    adminStopPickNetwork: "This address matches multiple networks. Choose network for stop list.",
     adminLinksEmpty: "Link log is empty.",
     adminLinksTitle: "Who added which links",
     btnWallets: "My wallets",
@@ -234,6 +236,16 @@ function t(language: Language, key: keyof (typeof I18N)["ru"]): string {
 
 function isBtn(input: string, key: keyof (typeof I18N)["ru"]): boolean {
   return input === I18N.ru[key] || input === I18N.en[key];
+}
+
+function isAdminActionButton(input: string): boolean {
+  return (
+    isBtn(input, "btnAdminPanel") ||
+    isBtn(input, "btnAdminReputation") ||
+    isBtn(input, "btnAdminResetReputation") ||
+    isBtn(input, "btnAdminStopWallets") ||
+    isBtn(input, "btnAdminLinks")
+  );
 }
 
 function withState(
@@ -691,7 +703,7 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "admin:reputation:reset:user") {
+  if (session?.flow === "admin:reputation:reset:user" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
@@ -703,14 +715,14 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (session?.flow === "admin:stop:manage") {
+  if (session?.flow === "admin:stop:manage" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
       return c.json({ ok: true });
     }
-    const [command, networkRaw, ...rest] = text.split(/\s+/);
-    const commandLower = (command ?? "").toLowerCase();
+    const trimmed = text.trim();
+    const commandLower = trimmed.toLowerCase();
 
     if (commandLower === "list") {
       const stopped = await listStoppedWallets(c.env);
@@ -731,43 +743,97 @@ bot.post("/telegram", async (c) => {
       return c.json({ ok: true });
     }
 
-    if ((commandLower === "add" || commandLower === "del") && networkRaw && rest.length > 0) {
-      const networkCandidate = networkRaw.toLowerCase();
-      if (
-        networkCandidate !== "btc" &&
-        networkCandidate !== "eth" &&
-        networkCandidate !== "bsc" &&
-        networkCandidate !== "trc20"
-      ) {
-        await sendTelegramMessage(
-          c.env.TELEGRAM_BOT_TOKEN,
-          message.chat.id,
-          t(language, "adminStopInvalidCommand"),
-          adminKeyboard(language)
-        );
-        return c.json({ ok: true });
-      }
-      const network = networkCandidate;
-      const address = rest.join(" ").trim();
-      try {
-        if (commandLower === "add") {
-          await addStoppedWallet(c.env, userId, network, address);
-          await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminStopAdded"), adminKeyboard(language));
-        } else {
-          const removed = await removeStoppedWallet(c.env, network, address);
-          await sendTelegramMessage(
-            c.env.TELEGRAM_BOT_TOKEN,
-            message.chat.id,
-            removed ? t(language, "adminStopRemoved") : t(language, "adminStopNotFound"),
-            adminKeyboard(language)
-          );
-        }
-      } catch {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidAddress"), adminKeyboard(language));
-      }
+    let action: "add" | "del" = "add";
+    let address = trimmed;
+
+    if (commandLower.startsWith("del ")) {
+      action = "del";
+      address = trimmed.slice(4).trim();
+    } else if (commandLower.startsWith("add ")) {
+      action = "add";
+      address = trimmed.slice(4).trim();
+    }
+
+    const candidates = detectAddressNetworks(address) as WalletNetwork[];
+    if (candidates.length === 0) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidAddress"), adminKeyboard(language));
       return c.json({ ok: true });
     }
 
+    if (candidates.length > 1) {
+      await setBotSession(c.env, userId, {
+        flow: "admin:stop:pick-network",
+        payload: { action, address, candidates }
+      });
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "adminStopPickNetwork"),
+        detectedNetworkKeyboard(language, candidates)
+      );
+      return c.json({ ok: true });
+    }
+
+    try {
+      if (action === "add") {
+        await addStoppedWallet(c.env, userId, candidates[0], address);
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminStopAdded"), adminKeyboard(language));
+      } else {
+        const removed = await removeStoppedWallet(c.env, candidates[0], address);
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          removed ? t(language, "adminStopRemoved") : t(language, "adminStopNotFound"),
+          adminKeyboard(language)
+        );
+      }
+    } catch {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidAddress"), adminKeyboard(language));
+    }
+    return c.json({ ok: true });
+  }
+
+  if (session?.flow === "admin:stop:pick-network" && !isAdminActionButton(text)) {
+    if (!isAdmin) {
+      await clearBotSession(c.env, userId);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
+      return c.json({ ok: true });
+    }
+    const action = (session.payload?.action as "add" | "del" | undefined) ?? "add";
+    const address = session.payload?.address as string | undefined;
+    const candidates = (session.payload?.candidates as WalletNetwork[] | undefined) ?? [];
+    const network = parseNetworkLabel(text);
+    if (!network || !address || !candidates.includes(network)) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "adminStopPickNetwork"),
+        detectedNetworkKeyboard(language, candidates)
+      );
+      return c.json({ ok: true });
+    }
+
+    try {
+      if (action === "add") {
+        await addStoppedWallet(c.env, userId, network, address);
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminStopAdded"), adminKeyboard(language));
+      } else {
+        const removed = await removeStoppedWallet(c.env, network, address);
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          removed ? t(language, "adminStopRemoved") : t(language, "adminStopNotFound"),
+          adminKeyboard(language)
+        );
+      }
+    } catch {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidAddress"), adminKeyboard(language));
+    }
+    await setBotSession(c.env, userId, { flow: "admin:stop:manage" });
+    return c.json({ ok: true });
+  }
+
+  if ((session?.flow === "admin:stop:manage" || session?.flow === "admin:stop:pick-network") && !isAdminActionButton(text)) {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
