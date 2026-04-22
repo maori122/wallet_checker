@@ -5,6 +5,7 @@ import {
   addStoppedWallet,
   clearBotSession,
   createContact,
+  createPromoCodeEntry,
   createWallet,
   deleteContact,
   deleteWallet,
@@ -157,6 +158,11 @@ const I18N = {
     adminStopPickNetwork: "Адрес подходит под несколько сетей. Выберите сеть для стоп-листа.",
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
+    adminPromoAsk:
+      "Отправьте параметры промокода одной строкой:\nCODE DAYS [MAX] [BONUS]\nПример: SPRING2026 30 100 20\nГде MAX и BONUS необязательны.",
+    adminPromoCreated: "Промокод создан.",
+    adminPromoInvalid:
+      "Неверный формат. Используйте: CODE DAYS [MAX] [BONUS], например SPRING2026 30 100 20.",
     btnWallets: "👁️ Отслеживаемые",
     btnContacts: "👥 Знакомые кошельки",
     btnSettings: "⚙️ Настройки",
@@ -186,6 +192,7 @@ const I18N = {
     btnAdminResetReputation: "♻️ Обнулить репутацию",
     btnAdminStopWallets: "⛔ Стоп-кошельки",
     btnAdminLinks: "🔎 Логи ссылок",
+    btnAdminCreatePromo: "🎟️ Создать промокод",
     btnActivatePromo: "🎟️ Активировать промокод",
     btnPaySubscription: "💳 Оплатить подписку",
     btnCheckPayment: "✅ Проверить оплату",
@@ -286,6 +293,11 @@ const I18N = {
     adminStopPickNetwork: "This address matches multiple networks. Choose network for stop list.",
     adminLinksEmpty: "Link log is empty.",
     adminLinksTitle: "Who added which links",
+    adminPromoAsk:
+      "Send promo parameters in one line:\nCODE DAYS [MAX] [BONUS]\nExample: SPRING2026 30 100 20\nMAX and BONUS are optional.",
+    adminPromoCreated: "Promo code created.",
+    adminPromoInvalid:
+      "Invalid format. Use: CODE DAYS [MAX] [BONUS], for example SPRING2026 30 100 20.",
     btnWallets: "👛 My wallets",
     btnContacts: "👥 Known wallets",
     btnSettings: "⚙️ Settings",
@@ -315,6 +327,7 @@ const I18N = {
     btnAdminResetReputation: "♻️ Reset reputation",
     btnAdminStopWallets: "⛔ Stop wallets",
     btnAdminLinks: "🔎 Links log",
+    btnAdminCreatePromo: "🎟️ Create promo code",
     btnActivatePromo: "🎟️ Activate promo code",
     btnPaySubscription: "💳 Pay subscription",
     btnCheckPayment: "✅ Check payment",
@@ -345,7 +358,8 @@ function isAdminActionButton(input: string): boolean {
     isBtn(input, "btnAdminReputation") ||
     isBtn(input, "btnAdminResetReputation") ||
     isBtn(input, "btnAdminStopWallets") ||
-    isBtn(input, "btnAdminLinks")
+    isBtn(input, "btnAdminLinks") ||
+    isBtn(input, "btnAdminCreatePromo")
   );
 }
 
@@ -688,6 +702,7 @@ function settingsKeyboard(language: Language): ReplyMarkup {
 function adminKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
+      [t(language, "btnAdminCreatePromo")],
       [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
       [t(language, "btnMainMenu")]
     ],
@@ -1266,6 +1281,45 @@ bot.post("/telegram", async (c) => {
               ? t(language, "promoEmpty")
               : t(language, "promoInvalid");
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, errorText, cabinetKeyboard(language));
+    }
+    return c.json({ ok: true });
+  }
+
+  if (session?.flow === "admin:promo:create" && !isAdminActionButton(text)) {
+    if (!isAdmin) {
+      await clearBotSession(c.env, userId);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
+      return c.json({ ok: true });
+    }
+
+    const parts = text.split(/\s+/).filter(Boolean);
+    const code = (parts[0] ?? "").trim();
+    const durationDays = Number.parseInt(parts[1] ?? "", 10);
+    const maxRaw = parts[2];
+    const bonusRaw = parts[3];
+    const maxActivations = maxRaw ? Number.parseInt(maxRaw, 10) : null;
+    const bonusPercent = bonusRaw ? Number.parseInt(bonusRaw, 10) : 0;
+    const isDurationValid = Number.isInteger(durationDays) && durationDays >= 1 && durationDays <= 3650;
+    const isMaxValid = maxActivations === null || (Number.isInteger(maxActivations) && maxActivations >= 1 && maxActivations <= 100000);
+    const isBonusValid = Number.isInteger(bonusPercent) && bonusPercent >= 0 && bonusPercent <= 1000;
+
+    if (!code || !isDurationValid || !isMaxValid || !isBonusValid || parts.length > 4) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoInvalid"), adminKeyboard(language));
+      return c.json({ ok: true });
+    }
+
+    try {
+      await createPromoCodeEntry(c.env, {
+        code,
+        durationDays,
+        maxActivations,
+        bonusPercent,
+        isActive: true
+      });
+      await setBotSession(c.env, userId, { flow: "section:admin" });
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoCreated"), adminKeyboard(language));
+    } catch {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoInvalid"), adminKeyboard(language));
     }
     return c.json({ ok: true });
   }
@@ -1869,6 +1923,16 @@ bot.post("/telegram", async (c) => {
       lines,
       replyMarkup: adminKeyboard(language)
     });
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnAdminCreatePromo")) {
+    if (!isAdmin) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
+      return c.json({ ok: true });
+    }
+    await setBotSession(c.env, userId, { flow: "admin:promo:create" });
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoAsk"), adminKeyboard(language));
     return c.json({ ok: true });
   }
 
