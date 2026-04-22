@@ -89,6 +89,8 @@ const I18N = {
     contactsDeleteEmpty: "Удалять нечего: список пуст.",
     invalidNumber: "Нужен корректный номер из списка.",
     invalidAddress: "Некорректный адрес. Проверьте формат и попробуйте снова.",
+    walletAlreadyExists: "Этот кошелек уже добавлен в этой сети.",
+    contactAlreadyExists: "Этот знакомый кошелек уже добавлен в этой сети.",
     enterNumeric: "Введите число, например 0.01",
     settingsSaved: "Настройки сохранены.",
     testNotification: "Тестовое уведомление: бот подключен.",
@@ -197,6 +199,8 @@ const I18N = {
     contactsDeleteEmpty: "Nothing to delete: list is empty.",
     invalidNumber: "Please send a valid number from the list.",
     invalidAddress: "Invalid address. Please verify and try again.",
+    walletAlreadyExists: "This wallet is already added in this network.",
+    contactAlreadyExists: "This known wallet is already added in this network.",
     enterNumeric: "Enter a number, for example 0.01",
     settingsSaved: "Settings saved.",
     testNotification: "Test notification: bot is connected.",
@@ -413,6 +417,24 @@ function formatDateForLanguage(value: string | null, language: Language): string
     return value;
   }
   return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US");
+}
+
+function mapCreateError(
+  language: Language,
+  error: unknown,
+  entity: "wallet" | "contact"
+): string {
+  const message = (error as Error).message ?? "";
+  if (message.includes("Invalid")) {
+    return t(language, "invalidAddress");
+  }
+  if (entity === "wallet" && message === "WALLET_ALREADY_EXISTS") {
+    return t(language, "walletAlreadyExists");
+  }
+  if (entity === "contact" && message === "CONTACT_ALREADY_EXISTS") {
+    return t(language, "contactAlreadyExists");
+  }
+  return message;
 }
 
 function currentSection(session: BotSession | null): "wallets" | "contacts" | null {
@@ -636,7 +658,7 @@ bot.post("/telegram", async (c) => {
         await setBotSession(c.env, userId, { flow: "section:wallets" });
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
       } catch (error) {
-        const messageText = (error as Error).message.includes("Invalid") ? t(language, "invalidAddress") : (error as Error).message;
+        const messageText = mapCreateError(language, error, "wallet");
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
       }
       return c.json({ ok: true });
@@ -682,7 +704,7 @@ bot.post("/telegram", async (c) => {
       await setBotSession(c.env, userId, { flow: "section:wallets" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
     } catch (error) {
-      const messageText = (error as Error).message.includes("Invalid") ? t(language, "invalidAddress") : (error as Error).message;
+      const messageText = mapCreateError(language, error, "wallet");
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
     }
     return c.json({ ok: true });
@@ -706,7 +728,7 @@ bot.post("/telegram", async (c) => {
       await setBotSession(c.env, userId, { flow: "section:wallets" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
     } catch (error) {
-      const messageText = (error as Error).message.includes("Invalid") ? t(language, "invalidAddress") : (error as Error).message;
+      const messageText = mapCreateError(language, error, "wallet");
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
     }
     return c.json({ ok: true });
@@ -729,7 +751,7 @@ bot.post("/telegram", async (c) => {
       await setBotSession(c.env, userId, { flow: "section:wallets" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
     } catch (error) {
-      const messageText = (error as Error).message.includes("Invalid") ? t(language, "invalidAddress") : (error as Error).message;
+      const messageText = mapCreateError(language, error, "wallet");
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
     }
     return c.json({ ok: true });
@@ -946,7 +968,7 @@ bot.post("/telegram", async (c) => {
       await setBotSession(c.env, userId, { flow: "section:contacts" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactAdded"), sectionKeyboard(language));
     } catch (error) {
-      const messageText = (error as Error).message.includes("Invalid") ? t(language, "invalidAddress") : (error as Error).message;
+      const messageText = mapCreateError(language, error, "contact");
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
     }
     return c.json({ ok: true });

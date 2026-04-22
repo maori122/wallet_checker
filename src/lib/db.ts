@@ -332,32 +332,40 @@ export async function createWallet(
   const monitorUsdtTrc20 =
     payload.network === "trc20" ? (payload.monitorUsdtTrc20 ?? true) : false;
 
-  await env.DB.prepare(
-    `INSERT INTO wallets (
-      id,
-      user_id,
-      network,
-      address_ciphertext,
-      address_hash,
-      monitor_eth_native,
-      monitor_usdt_erc20,
-      monitor_usdt_bep20,
-      monitor_usdt_trc20,
-      created_at
+  try {
+    await env.DB.prepare(
+      `INSERT INTO wallets (
+        id,
+        user_id,
+        network,
+        address_ciphertext,
+        address_hash,
+        monitor_eth_native,
+        monitor_usdt_erc20,
+        monitor_usdt_bep20,
+        monitor_usdt_trc20,
+        created_at
+      )
+       VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
     )
-     VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-  )
-    .bind(
-      userId,
-      payload.network,
-      ciphertext,
-      hashed,
-      monitorEthNative ? 1 : 0,
-      monitorUsdtErc20 ? 1 : 0,
-      monitorUsdtBep20 ? 1 : 0,
-      monitorUsdtTrc20 ? 1 : 0
-    )
-    .run();
+      .bind(
+        userId,
+        payload.network,
+        ciphertext,
+        hashed,
+        monitorEthNative ? 1 : 0,
+        monitorUsdtErc20 ? 1 : 0,
+        monitorUsdtBep20 ? 1 : 0,
+        monitorUsdtTrc20 ? 1 : 0
+      )
+      .run();
+  } catch (error) {
+    const message = (error as Error).message ?? "";
+    if (message.includes("wallets.user_id, wallets.network, wallets.address_hash")) {
+      throw new Error("WALLET_ALREADY_EXISTS");
+    }
+    throw error;
+  }
 
   await appendLinkAudit(env, {
     actorUserId: userId,
@@ -418,20 +426,28 @@ export async function createContact(
   const labelCiphertext = await encryptForUser(payload.label.trim(), userId, env.ENCRYPTION_MASTER_KEY);
   const hashed = await addressHash(normalized.toLowerCase());
 
-  await env.DB.prepare(
-    `INSERT INTO contacts (
-      id,
-      user_id,
-      network,
-      address_ciphertext,
-      address_hash,
-      label_ciphertext,
-      created_at,
-      updated_at
-    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
-  )
-    .bind(userId, payload.network, addressCiphertext, hashed, labelCiphertext)
-    .run();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO contacts (
+        id,
+        user_id,
+        network,
+        address_ciphertext,
+        address_hash,
+        label_ciphertext,
+        created_at,
+        updated_at
+      ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    )
+      .bind(userId, payload.network, addressCiphertext, hashed, labelCiphertext)
+      .run();
+  } catch (error) {
+    const message = (error as Error).message ?? "";
+    if (message.includes("contacts.user_id, contacts.network, contacts.address_hash")) {
+      throw new Error("CONTACT_ALREADY_EXISTS");
+    }
+    throw error;
+  }
 
   await appendLinkAudit(env, {
     actorUserId: userId,
