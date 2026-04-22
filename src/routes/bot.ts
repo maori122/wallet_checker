@@ -19,6 +19,7 @@ import {
   resetUserReputation,
   removeStoppedWallet,
   setBotSession,
+  upsertUserProfile,
   updateSettings
 } from "../lib/db";
 import { getWalletBalances } from "../lib/wallet-insights";
@@ -39,6 +40,9 @@ type TelegramUpdate = {
     };
     from?: {
       id: number;
+      username?: string;
+      first_name?: string;
+      last_name?: string;
     };
   };
 };
@@ -95,6 +99,7 @@ const I18N = {
     adminReputationEmpty: "В таблице репутации пока нет пользователей.",
     adminReputationTitle: "Топ репутации",
     adminResetAsk: "Введите Telegram user id для обнуления репутации.",
+    adminResetInvalidUserId: "Неверный user id. Отправьте только цифры.",
     adminResetDone: "Репутация пользователя обнулена.",
     adminStopHelp:
       "Управление стоп-кошельками:\nlist\n<ADDRESS> (добавить в стоп)\ndel <ADDRESS> (удалить из стоп)",
@@ -180,6 +185,7 @@ const I18N = {
     adminReputationEmpty: "Reputation table is empty.",
     adminReputationTitle: "Top reputation",
     adminResetAsk: "Send Telegram user id to reset reputation.",
+    adminResetInvalidUserId: "Invalid user id. Please send digits only.",
     adminResetDone: "User reputation reset.",
     adminStopHelp:
       "Stop-wallet management:\nlist\n<ADDRESS> (add to stop list)\ndel <ADDRESS> (remove from stop list)",
@@ -269,6 +275,54 @@ function maskTxid(value: string): string {
     return value;
   }
   return `${value.slice(0, 10)}...${value.slice(-6)}`;
+}
+
+function toUserLabel(params: {
+  userId: string;
+  username?: string | null;
+  displayName?: string | null;
+}): string {
+  if (params.username) {
+    return `@${params.username} (${params.userId})`;
+  }
+  if (params.displayName) {
+    return `${params.displayName} (${params.userId})`;
+  }
+  return params.userId;
+}
+
+function paginateLines(lines: string[], pageSize = 8): string[][] {
+  const pages: string[][] = [];
+  for (let i = 0; i < lines.length; i += pageSize) {
+    pages.push(lines.slice(i, i + pageSize));
+  }
+  return pages;
+}
+
+async function sendPagedList(params: {
+  token: string;
+  chatId: number;
+  language: Language;
+  title: string;
+  lines: string[];
+  replyMarkup?: ReplyMarkup;
+  pageSize?: number;
+}): Promise<void> {
+  const pages = paginateLines(params.lines, params.pageSize ?? 8);
+  for (let i = 0; i < pages.length; i += 1) {
+    const pageLabel =
+      pages.length > 1
+        ? params.language === "ru"
+          ? `\n\nСтраница ${i + 1}/${pages.length}`
+          : `\n\nPage ${i + 1}/${pages.length}`
+        : "";
+    await sendTelegramMessage(
+      params.token,
+      params.chatId,
+      `${params.title}\n${pages[i].join("\n")}${pageLabel}`,
+      params.replyMarkup
+    );
+  }
 }
 
 function currentSection(session: BotSession | null): "wallets" | "contacts" | null {
@@ -416,6 +470,15 @@ bot.post("/telegram", async (c) => {
 
   const userId = String(message.from.id);
   const text = message.text?.trim();
+  const displayName = [message.from.first_name, message.from.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  await upsertUserProfile(c.env, {
+    userId,
+    username: message.from.username ?? null,
+    displayName: displayName || null
+  });
   const isAdmin = isAdminUser(c.env, userId);
   let settings = await getSettings(c.env, userId);
   const language = settings.language;
@@ -709,6 +772,15 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
       return c.json({ ok: true });
     }
+    if (!/^\d+$/.test(text)) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "adminResetInvalidUserId"),
+        adminKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
     await resetUserReputation(c.env, text);
     await setBotSession(c.env, userId, { flow: "section:admin" });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminResetDone"), adminKeyboard(language));
@@ -732,14 +804,20 @@ bot.post("/telegram", async (c) => {
       }
       const lines = stopped.map(
         (item, index) =>
-          `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)} by ${item.addedByUserId}`
+          `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)} by ${toUserLabel({
+            userId: item.addedByUserId,
+            username: item.addedByUsername,
+            displayName: item.addedByDisplayName
+          })}`
       );
-      await sendTelegramMessage(
-        c.env.TELEGRAM_BOT_TOKEN,
-        message.chat.id,
-        `${t(language, "adminStopListTitle")}:\n${lines.join("\n")}`,
-        adminKeyboard(language)
-      );
+      await sendPagedList({
+        token: c.env.TELEGRAM_BOT_TOKEN,
+        chatId: message.chat.id,
+        language,
+        title: `${t(language, "adminStopListTitle")}:`,
+        lines,
+        replyMarkup: adminKeyboard(language)
+      });
       return c.json({ ok: true });
     }
 
@@ -898,7 +976,14 @@ bot.post("/telegram", async (c) => {
         return c.json({ ok: true });
       }
       const lines = wallets.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)}`);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "walletsTitle")}:\n${lines.join("\n")}`, sectionKeyboard(language));
+      await sendPagedList({
+        token: c.env.TELEGRAM_BOT_TOKEN,
+        chatId: message.chat.id,
+        language,
+        title: `${t(language, "walletsTitle")}:`,
+        lines,
+        replyMarkup: sectionKeyboard(language)
+      });
       return c.json({ ok: true });
     }
     if (section === "contacts") {
@@ -908,7 +993,14 @@ bot.post("/telegram", async (c) => {
         return c.json({ ok: true });
       }
       const lines = contacts.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${item.label} - ${maskAddress(item.address)}`);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "contactsTitle")}:\n${lines.join("\n")}`, sectionKeyboard(language));
+      await sendPagedList({
+        token: c.env.TELEGRAM_BOT_TOKEN,
+        chatId: message.chat.id,
+        language,
+        title: `${t(language, "contactsTitle")}:`,
+        lines,
+        replyMarkup: sectionKeyboard(language)
+      });
       return c.json({ ok: true });
     }
 
@@ -934,12 +1026,14 @@ bot.post("/telegram", async (c) => {
     }
     const lines = wallets.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)}`);
     await setBotSession(c.env, userId, { flow: "wallet:balance:pick", payload: { ids: wallets.map((item) => item.id) } });
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      `${t(language, "walletBalancesPick")}\n${lines.join("\n")}`,
-      sectionKeyboard(language)
-    );
+    await sendPagedList({
+      token: c.env.TELEGRAM_BOT_TOKEN,
+      chatId: message.chat.id,
+      language,
+      title: t(language, "walletBalancesPick"),
+      lines,
+      replyMarkup: sectionKeyboard(language)
+    });
     return c.json({ ok: true });
   }
 
@@ -958,12 +1052,14 @@ bot.post("/telegram", async (c) => {
       (item, index) =>
         `${index + 1}. [${item.network.toUpperCase()}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}`
     );
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      `${t(language, "transferHistoryTitle")}:\n${lines.join("\n")}`,
-      sectionKeyboard(language)
-    );
+    await sendPagedList({
+      token: c.env.TELEGRAM_BOT_TOKEN,
+      chatId: message.chat.id,
+      language,
+      title: `${t(language, "transferHistoryTitle")}:`,
+      lines,
+      replyMarkup: sectionKeyboard(language)
+    });
     return c.json({ ok: true });
   }
 
@@ -1012,7 +1108,14 @@ bot.post("/telegram", async (c) => {
       }
       const lines = wallets.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${maskAddress(item.address)}`);
       await setBotSession(c.env, userId, { flow: "wallet:delete:pick", payload: { ids: wallets.map((item) => item.id) } });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "walletDeletePick")}\n${lines.join("\n")}`, sectionKeyboard(language));
+      await sendPagedList({
+        token: c.env.TELEGRAM_BOT_TOKEN,
+        chatId: message.chat.id,
+        language,
+        title: t(language, "walletDeletePick"),
+        lines,
+        replyMarkup: sectionKeyboard(language)
+      });
       return c.json({ ok: true });
     }
     if (section === "contacts") {
@@ -1023,7 +1126,14 @@ bot.post("/telegram", async (c) => {
       }
       const lines = contacts.map((item, index) => `${index + 1}. [${item.network.toUpperCase()}] ${item.label} - ${maskAddress(item.address)}`);
       await setBotSession(c.env, userId, { flow: "contact:delete:pick", payload: { ids: contacts.map((item) => item.id) } });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, `${t(language, "contactDeletePick")}\n${lines.join("\n")}`, sectionKeyboard(language));
+      await sendPagedList({
+        token: c.env.TELEGRAM_BOT_TOKEN,
+        chatId: message.chat.id,
+        language,
+        title: t(language, "contactDeletePick"),
+        lines,
+        replyMarkup: sectionKeyboard(language)
+      });
       return c.json({ ok: true });
     }
     await sendTelegramMessage(
@@ -1119,13 +1229,22 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminReputationEmpty"), adminKeyboard(language));
       return c.json({ ok: true });
     }
-    const lines = top.map((item, index) => `${index + 1}. ${item.userId} — ${item.score}`);
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      `${t(language, "adminReputationTitle")}:\n${lines.join("\n")}`,
-      adminKeyboard(language)
+    const lines = top.map(
+      (item, index) =>
+        `${index + 1}. ${toUserLabel({
+          userId: item.userId,
+          username: item.username,
+          displayName: item.displayName
+        })} — ${item.score}`
     );
+    await sendPagedList({
+      token: c.env.TELEGRAM_BOT_TOKEN,
+      chatId: message.chat.id,
+      language,
+      title: `${t(language, "adminReputationTitle")}:`,
+      lines,
+      replyMarkup: adminKeyboard(language)
+    });
     return c.json({ ok: true });
   }
 
@@ -1161,14 +1280,20 @@ bot.post("/telegram", async (c) => {
     }
     const lines = entries.map(
       (item, index) =>
-        `${index + 1}. ${item.actorUserId} · ${item.entityType} · [${item.network.toUpperCase()}] ${maskAddress(item.address)}${item.label ? ` (${item.label})` : ""}`
+        `${index + 1}. ${toUserLabel({
+          userId: item.actorUserId,
+          username: item.actorUsername,
+          displayName: item.actorDisplayName
+        })} · ${item.entityType} · [${item.network.toUpperCase()}] ${maskAddress(item.address)}${item.label ? ` (${item.label})` : ""}`
     );
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      `${t(language, "adminLinksTitle")}:\n${lines.join("\n")}`,
-      adminKeyboard(language)
-    );
+    await sendPagedList({
+      token: c.env.TELEGRAM_BOT_TOKEN,
+      chatId: message.chat.id,
+      language,
+      title: `${t(language, "adminLinksTitle")}:`,
+      lines,
+      replyMarkup: adminKeyboard(language)
+    });
     return c.json({ ok: true });
   }
 

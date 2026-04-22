@@ -57,6 +57,8 @@ export type UsageSummary = {
 
 export type ReputationEntry = {
   userId: string;
+  username: string | null;
+  displayName: string | null;
   score: number;
   updatedAt: string;
 };
@@ -66,12 +68,16 @@ export type StoppedWallet = {
   network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
   addedByUserId: string;
+  addedByUsername: string | null;
+  addedByDisplayName: string | null;
   createdAt: string;
 };
 
 export type LinkAuditEntry = {
   id: string;
   actorUserId: string;
+  actorUsername: string | null;
+  actorDisplayName: string | null;
   entityType: "wallet" | "contact";
   network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
@@ -132,6 +138,27 @@ async function ensureReputationRow(env: Env, userId: string): Promise<void> {
      ON CONFLICT(user_id) DO NOTHING`
   )
     .bind(userId)
+    .run();
+}
+
+export async function upsertUserProfile(
+  env: Env,
+  payload: { userId: string; username?: string | null; displayName?: string | null }
+): Promise<void> {
+  await ensureUserRow(env, payload.userId);
+  await env.DB.prepare(
+    `INSERT INTO user_profiles (user_id, username, display_name, updated_at)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(user_id) DO UPDATE SET
+       username = excluded.username,
+       display_name = excluded.display_name,
+       updated_at = CURRENT_TIMESTAMP`
+  )
+    .bind(
+      payload.userId,
+      payload.username?.trim() ? payload.username.trim() : null,
+      payload.displayName?.trim() ? payload.displayName.trim() : null
+    )
     .run();
 }
 
@@ -485,16 +512,26 @@ export async function getUserReputation(env: Env, userId: string): Promise<numbe
 export async function listTopReputations(env: Env, limit = 20): Promise<ReputationEntry[]> {
   const safeLimit = Math.max(1, Math.min(limit, 100));
   const result = await env.DB.prepare(
-    `SELECT user_id, score, updated_at
-     FROM user_reputation
-     ORDER BY score DESC, updated_at DESC
+    `SELECT ur.user_id, ur.score, ur.updated_at, up.username, up.display_name
+     FROM user_reputation ur
+     LEFT JOIN user_profiles up ON up.user_id = ur.user_id
+     WHERE ur.user_id != '' AND ur.user_id NOT GLOB '*[^0-9]*'
+     ORDER BY ur.score DESC, ur.updated_at DESC
      LIMIT ?`
   )
     .bind(safeLimit)
-    .all<{ user_id: string; score: number; updated_at: string }>();
+    .all<{
+      user_id: string;
+      username: string | null;
+      display_name: string | null;
+      score: number;
+      updated_at: string;
+    }>();
 
   return result.results.map((row) => ({
     userId: row.user_id,
+    username: row.username,
+    displayName: row.display_name,
     score: row.score,
     updatedAt: row.updated_at
   }));
@@ -559,9 +596,10 @@ export async function isStoppedWallet(
 export async function listStoppedWallets(env: Env, limit = 50): Promise<StoppedWallet[]> {
   const safeLimit = Math.max(1, Math.min(limit, 200));
   const result = await env.DB.prepare(
-    `SELECT id, network, address_plaintext, added_by_user_id, created_at
-     FROM stopped_wallets
-     ORDER BY created_at DESC
+    `SELECT sw.id, sw.network, sw.address_plaintext, sw.added_by_user_id, sw.created_at, up.username, up.display_name
+     FROM stopped_wallets sw
+     LEFT JOIN user_profiles up ON up.user_id = sw.added_by_user_id
+     ORDER BY sw.created_at DESC
      LIMIT ?`
   )
     .bind(safeLimit)
@@ -570,6 +608,8 @@ export async function listStoppedWallets(env: Env, limit = 50): Promise<StoppedW
       network: "btc" | "eth" | "bsc" | "trc20";
       address_plaintext: string;
       added_by_user_id: string;
+      username: string | null;
+      display_name: string | null;
       created_at: string;
     }>();
 
@@ -578,6 +618,8 @@ export async function listStoppedWallets(env: Env, limit = 50): Promise<StoppedW
     network: row.network,
     address: row.address_plaintext,
     addedByUserId: row.added_by_user_id,
+    addedByUsername: row.username,
+    addedByDisplayName: row.display_name,
     createdAt: row.created_at
   }));
 }
@@ -585,9 +627,11 @@ export async function listStoppedWallets(env: Env, limit = 50): Promise<StoppedW
 export async function listLinkAuditEntries(env: Env, limit = 30): Promise<LinkAuditEntry[]> {
   const safeLimit = Math.max(1, Math.min(limit, 200));
   const result = await env.DB.prepare(
-    `SELECT id, actor_user_id, entity_type, network, address_plaintext, label_plaintext, created_at
-     FROM link_audit_log
-     ORDER BY created_at DESC
+    `SELECT la.id, la.actor_user_id, la.entity_type, la.network, la.address_plaintext, la.label_plaintext, la.created_at,
+            up.username, up.display_name
+     FROM link_audit_log la
+     LEFT JOIN user_profiles up ON up.user_id = la.actor_user_id
+     ORDER BY la.created_at DESC
      LIMIT ?`
   )
     .bind(safeLimit)
@@ -598,12 +642,16 @@ export async function listLinkAuditEntries(env: Env, limit = 30): Promise<LinkAu
       network: "btc" | "eth" | "bsc" | "trc20";
       address_plaintext: string;
       label_plaintext: string | null;
+      username: string | null;
+      display_name: string | null;
       created_at: string;
     }>();
 
   return result.results.map((row) => ({
     id: row.id,
     actorUserId: row.actor_user_id,
+    actorUsername: row.username,
+    actorDisplayName: row.display_name,
     entityType: row.entity_type,
     network: row.network,
     address: row.address_plaintext,
