@@ -14,7 +14,7 @@ SUBSCRIPTION_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8"
 SUBSCRIPTION_TRC20_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY"
 
 [triggers]
-crons = ["*/2 * * * *"]
+crons = ["* * * * *"]
 
 [observability]
 

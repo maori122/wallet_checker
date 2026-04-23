@@ -66,8 +66,8 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
   }
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     // eslint-disable-next-line no-console
@@ -387,29 +387,75 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
     ethereum?: { usd?: number };
     tether?: { usd?: number };
   };
+  type CryptoCompareResponse = {
+    BTC?: { USD?: number };
+    ETH?: { USD?: number };
+    USDT?: { USD?: number };
+  };
   try {
     const result = await fetchJson<PriceResponse>(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=usd"
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=usd",
+      {
+        headers: {
+          accept: "application/json",
+          "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
+        }
+      }
     );
+    const btc = result.bitcoin?.usd ?? 0;
+    const eth = result.ethereum?.usd ?? 0;
+    const usdt = result.tether?.usd ?? 1;
+    if (btc <= 0 || eth <= 0 || usdt <= 0) {
+      throw new Error("CoinGecko returned incomplete prices");
+    }
 
     priceCache = {
       timestamp: now,
-      btc: result.bitcoin?.usd ?? 0,
-      eth: result.ethereum?.usd ?? 0,
-      usdt: result.tether?.usd ?? 1
+      btc,
+      eth,
+      usdt
     };
   } catch (error) {
-    // If price providers block Cloudflare (403) or rate limit, do not break monitoring.
+    // If CoinGecko blocks Cloudflare (403/rate limit), fall back to another source.
     // eslint-disable-next-line no-console
-    console.warn("Price fetch failed; USD estimates disabled temporarily", {
+    console.warn("CoinGecko price fetch failed; trying fallback provider", {
       error: (error as Error)?.message ?? String(error)
     });
-    const fallback = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
-    priceCache = {
-      timestamp: now,
-      btc: fallback.btc,
-      eth: fallback.eth,
-      usdt: fallback.usdt
+    try {
+      const alt = await fetchJson<CryptoCompareResponse>(
+        "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,USDT&tsyms=USD",
+        {
+          headers: {
+            accept: "application/json",
+            "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
+          }
+        }
+      );
+      const btc = alt.BTC?.USD ?? 0;
+      const eth = alt.ETH?.USD ?? 0;
+      const usdt = alt.USDT?.USD ?? 1;
+      if (btc <= 0 || eth <= 0 || usdt <= 0) {
+        throw new Error("Fallback provider returned incomplete prices");
+      }
+      priceCache = {
+        timestamp: now,
+        btc,
+        eth,
+        usdt
+      };
+    } catch (fallbackError) {
+      // If both providers fail, keep monitoring transfers and just skip USD estimates.
+      // eslint-disable-next-line no-console
+      console.warn("Fallback price provider failed; USD estimates disabled temporarily", {
+        error: (fallbackError as Error)?.message ?? String(fallbackError)
+      });
+      const fallback = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
+      priceCache = {
+        timestamp: now,
+        btc: fallback.btc,
+        eth: fallback.eth,
+        usdt: fallback.usdt
+      };
     };
   }
 
@@ -485,7 +531,16 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
     return;
   }
 
-  const prices = await getPricesUsd();
+  let prices = { btc: 0, eth: 0, usdt: 1 };
+  try {
+    prices = await getPricesUsd();
+  } catch (error) {
+    // Hard safety net: monitoring must continue even if pricing layer breaks unexpectedly.
+    // eslint-disable-next-line no-console
+    console.warn("Unexpected price layer failure; proceeding without USD estimates", {
+      error: (error as Error)?.message ?? String(error)
+    });
+  }
   const etherscanKey = env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
   const bscscanKey = env.BSCSCAN_API_KEY ?? "YourApiKeyToken";
   const trongridKey = env.TRONGRID_API_KEY;
