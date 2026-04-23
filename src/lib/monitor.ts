@@ -75,7 +75,12 @@ function getThresholdForEvent(
   return Number.isFinite(fallback) && fallback >= 0 ? fallback : 0;
 }
 
-async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
+async function sendTelegramMessage(
+  env: Env,
+  chatId: string,
+  text: string,
+  parseMode?: "HTML" | "MarkdownV2"
+): Promise<void> {
   const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: {
@@ -83,7 +88,8 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
     },
     body: JSON.stringify({
       chat_id: chatId,
-      text
+      text,
+      parse_mode: parseMode
     })
   });
   if (!response.ok) {
@@ -91,6 +97,13 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
     // eslint-disable-next-line no-console
     console.error("Telegram sendMessage failed", { status: response.status, body });
   }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit, suppressErrorLog = false): Promise<T> {
@@ -611,27 +624,30 @@ function formatNotification(params: {
 }): string {
   const senderAddress = params.from ?? (params.language === "ru" ? "не указан" : "not provided");
   const showUsdEstimate = params.usdEstimate !== null && params.asset !== "USDT";
+  const escapedSenderAddress = escapeHtml(senderAddress);
+  const escapedRecipientAddress = escapeHtml(params.toAddress);
+  const escapedLabel = params.label ? escapeHtml(params.label) : null;
 
   if (params.language === "ru") {
     return [
-      `📥 Входящее пополнение`,
-      `💰 Сумма: ${toFixedTrimmed(params.amount)} ${params.asset}`,
-      params.label ? `👤 Отправитель: ${params.label}` : `👤 Отправитель: Неизвестный`,
-      `🔗 Адрес отправителя: ${senderAddress}`,
-      `📬 Получатель: ${params.toAddress}`,
-      showUsdEstimate ? `💵 Оценка: ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
+      `📥 <b>Входящее пополнение</b>`,
+      `💰 <b>Сумма:</b> ${toFixedTrimmed(params.amount)} ${params.asset}`,
+      escapedLabel ? `👤 <b>Отправитель:</b> ${escapedLabel}` : null,
+      `🔗 <b>Адрес отправителя:</b>\n<blockquote>${escapedSenderAddress}</blockquote>`,
+      `📬 <b>Получатель:</b>\n<blockquote>${escapedRecipientAddress}</blockquote>`,
+      showUsdEstimate ? `💵 <b>Оценка:</b> ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
     ]
       .filter(Boolean)
       .join("\n");
   }
 
   return [
-    `📥 Incoming transfer`,
-    `💰 Amount: ${toFixedTrimmed(params.amount)} ${params.asset}`,
-    params.label ? `👤 Sender: ${params.label}` : `👤 Sender: Unknown`,
-    `🔗 Sender address: ${senderAddress}`,
-    `📬 Recipient: ${params.toAddress}`,
-    showUsdEstimate ? `💵 Estimate: ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
+    `📥 <b>Incoming transfer</b>`,
+    `💰 <b>Amount:</b> ${toFixedTrimmed(params.amount)} ${params.asset}`,
+    escapedLabel ? `👤 <b>Sender:</b> ${escapedLabel}` : null,
+    `🔗 <b>Sender address:</b>\n<blockquote>${escapedSenderAddress}</blockquote>`,
+    `📬 <b>Recipient:</b>\n<blockquote>${escapedRecipientAddress}</blockquote>`,
+    showUsdEstimate ? `💵 <b>Estimate:</b> ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
   ]
     .filter(Boolean)
     .join("\n");
@@ -783,7 +799,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
             usdEstimate
           });
 
-          await sendTelegramMessage(env, wallet.userId, text);
+          await sendTelegramMessage(env, wallet.userId, text, "HTML");
         } catch (error) {
           // eslint-disable-next-line no-console
           console.error("Monitoring event processing failed", {
