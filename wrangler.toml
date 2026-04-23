@@ -15,3 +15,12 @@ SUBSCRIPTION_TRC20_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY"
 
 [triggers]
 crons = ["*/2 * * * *"]
+
+[observability]
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
