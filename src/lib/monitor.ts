@@ -609,28 +609,29 @@ function formatNotification(params: {
   asset: Asset;
   usdEstimate: number | null;
 }): string {
-  const sender =
-    params.label ??
-    (params.language === "ru"
-      ? `Неизвестный отправитель (${params.from ? maskAddress(params.from) : "n/a"})`
-      : `Unknown sender (${params.from ? maskAddress(params.from) : "n/a"})`);
+  const senderAddress = params.from ?? (params.language === "ru" ? "не указан" : "not provided");
+  const showUsdEstimate = params.usdEstimate !== null && params.asset !== "USDT";
 
   if (params.language === "ru") {
     return [
-      `Входящий перевод: ${toFixedTrimmed(params.amount)} ${params.asset}`,
-      `Отправитель: ${sender}`,
-      `Мой адрес: ${maskAddress(params.toAddress)}`,
-      params.usdEstimate !== null ? `Оценка: ≈ $${toFixedTrimmed(params.usdEstimate, 2)}` : null
+      `📥 Входящее пополнение`,
+      `💰 Сумма: ${toFixedTrimmed(params.amount)} ${params.asset}`,
+      params.label ? `👤 Отправитель: ${params.label}` : `👤 Отправитель: Неизвестный`,
+      `🔗 Адрес отправителя: ${senderAddress}`,
+      `📬 Получатель: ${params.toAddress}`,
+      showUsdEstimate ? `💵 Оценка: ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
     ]
       .filter(Boolean)
       .join("\n");
   }
 
   return [
-    `Incoming transfer: ${toFixedTrimmed(params.amount)} ${params.asset}`,
-    `Sender: ${sender}`,
-    `My address: ${maskAddress(params.toAddress)}`,
-    params.usdEstimate !== null ? `Estimate: ≈ $${toFixedTrimmed(params.usdEstimate, 2)}` : null
+    `📥 Incoming transfer`,
+    `💰 Amount: ${toFixedTrimmed(params.amount)} ${params.asset}`,
+    params.label ? `👤 Sender: ${params.label}` : `👤 Sender: Unknown`,
+    `🔗 Sender address: ${senderAddress}`,
+    `📬 Recipient: ${params.toAddress}`,
+    showUsdEstimate ? `💵 Estimate: ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
   ]
     .filter(Boolean)
     .join("\n");
