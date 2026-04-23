@@ -1032,7 +1032,7 @@ export async function appendTransferHistory(
       counterparty_address,
       amount_text,
       created_at
-    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(user_id, wallet_id, txid, asset, network, direction) DO NOTHING`
   )
     .bind(
