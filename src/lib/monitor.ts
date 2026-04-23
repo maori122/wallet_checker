@@ -69,7 +69,14 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    const body = await response.text().catch(() => "");
+    // eslint-disable-next-line no-console
+    console.error("HTTP request failed", {
+      url,
+      status: response.status,
+      body: body.slice(0, 600)
+    });
+    throw new Error(`Request failed with status ${response.status} for ${url}`);
   }
   return (await response.json()) as T;
 }
