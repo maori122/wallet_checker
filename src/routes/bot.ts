@@ -346,6 +346,7 @@ const I18N = {
 } as const;
 
 const bot = new Hono<{ Bindings: Env; Variables: Variables }>();
+const lastUiMessageByChat = new Map<number, number>();
 
 function t(language: Language, key: keyof (typeof I18N)["ru"]): string {
   return I18N[language][key];
@@ -723,6 +724,13 @@ async function sendTelegramMessage(
   replyMarkup?: ReplyMarkup,
   parseMode?: "HTML" | "MarkdownV2"
 ): Promise<Response> {
+  if (replyMarkup) {
+    const previousUiMessageId = lastUiMessageByChat.get(chatId);
+    if (previousUiMessageId) {
+      await deleteTelegramMessageWithRetry(token, chatId, previousUiMessageId);
+    }
+  }
+
   const payload: Record<string, unknown> = {
     chat_id: chatId,
     text
@@ -734,13 +742,27 @@ async function sendTelegramMessage(
     payload.parse_mode = parseMode;
   }
 
-  return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
     body: JSON.stringify(payload)
   });
+
+  if (replyMarkup && response.ok) {
+    try {
+      const data = (await response.clone().json()) as { result?: { message_id?: number } };
+      const sentMessageId = data.result?.message_id;
+      if (typeof sentMessageId === "number") {
+        lastUiMessageByChat.set(chatId, sentMessageId);
+      }
+    } catch {
+      // Ignore tracking parse errors; message still sent.
+    }
+  }
+
+  return response;
 }
 
 async function deleteTelegramMessage(token: string, chatId: number, messageId: number): Promise<boolean> {
