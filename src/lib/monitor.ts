@@ -387,16 +387,31 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
     ethereum?: { usd?: number };
     tether?: { usd?: number };
   };
-  const result = await fetchJson<PriceResponse>(
-    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=usd"
-  );
+  try {
+    const result = await fetchJson<PriceResponse>(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=usd"
+    );
 
-  priceCache = {
-    timestamp: now,
-    btc: result.bitcoin?.usd ?? 0,
-    eth: result.ethereum?.usd ?? 0,
-    usdt: result.tether?.usd ?? 1
-  };
+    priceCache = {
+      timestamp: now,
+      btc: result.bitcoin?.usd ?? 0,
+      eth: result.ethereum?.usd ?? 0,
+      usdt: result.tether?.usd ?? 1
+    };
+  } catch (error) {
+    // If price providers block Cloudflare (403) or rate limit, do not break monitoring.
+    // eslint-disable-next-line no-console
+    console.warn("Price fetch failed; USD estimates disabled temporarily", {
+      error: (error as Error)?.message ?? String(error)
+    });
+    const fallback = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
+    priceCache = {
+      timestamp: now,
+      btc: fallback.btc,
+      eth: fallback.eth,
+      usdt: fallback.usdt
+    };
+  }
 
   return {
     btc: priceCache.btc,
@@ -579,7 +594,8 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
         : null;
 
       const usdRate = event.asset === "BTC" ? prices.btc : event.asset === "ETH" ? prices.eth : prices.usdt;
-      const usdEstimate = settings.showUsdEstimate ? event.amount * usdRate : null;
+      const usdEstimate =
+        settings.showUsdEstimate && Number.isFinite(usdRate) && usdRate > 0 ? event.amount * usdRate : null;
 
       const text = formatNotification({
         language: settings.language,
