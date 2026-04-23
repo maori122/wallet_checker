@@ -768,6 +768,18 @@ async function deleteTelegramMessage(token: string, chatId: number, messageId: n
   }
 }
 
+async function cleanupRecentChat(
+  token: string,
+  chatId: number,
+  fromMessageId: number,
+  depth = 40
+): Promise<void> {
+  const startId = Math.max(1, fromMessageId - depth);
+  for (let messageId = fromMessageId; messageId >= startId; messageId -= 1) {
+    await deleteTelegramMessage(token, chatId, messageId);
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -840,12 +852,13 @@ bot.post("/telegram", async (c) => {
   await deleteTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
 
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
+    await cleanupRecentChat(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id, 60);
     await clearBotSession(c.env, userId);
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       hasBotAccess
-        ? `🏠 ${t(language, "mainMenu")}`
+        ? t(language, "greet")
         : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`,
       mainKeyboard(language, isAdmin, hasBotAccess)
     );
