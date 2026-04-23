@@ -15,7 +15,8 @@ const ETHERSCAN_V2_BASE = "https://api.etherscan.io/v2/api";
 const BSC_RPC_URLS = ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"] as const;
 const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
-const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
+const ERC20_TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 type Asset = "BTC" | "ETH" | "USDT";
 type Network = "btc" | "eth" | "bsc" | "trc20";
