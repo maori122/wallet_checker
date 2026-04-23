@@ -10,8 +10,7 @@ import {
   resolveContactLabel
 } from "./db";
 
-const ETHERSCAN_BASE = "https://api.etherscan.io/api";
-const BSCSCAN_BASE = "https://api.bscscan.com/api";
+const ETHERSCAN_V2_BASE = "https://api.etherscan.io/v2/api";
 const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 
@@ -153,7 +152,7 @@ async function fetchEthTransfers(address: string, apiKey: string): Promise<Trans
       | string;
   };
   const response = await fetchJson<EtherscanResponse>(
-    `${ETHERSCAN_BASE}?module=account&action=txlist&address=${encodeURIComponent(address)}&page=1&offset=30&sort=desc&apikey=${encodeURIComponent(apiKey)}`
+    `${ETHERSCAN_V2_BASE}?chainid=1&module=account&action=txlist&address=${encodeURIComponent(address)}&page=1&offset=30&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
     // eslint-disable-next-line no-console
@@ -209,7 +208,7 @@ async function fetchUsdtTransfers(address: string, apiKey: string): Promise<Tran
       | string;
   };
   const response = await fetchJson<EtherscanTokenResponse>(
-    `${ETHERSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_ETH_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
+    `${ETHERSCAN_V2_BASE}?chainid=1&module=account&action=tokentx&contractaddress=${USDT_ETH_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
     // eslint-disable-next-line no-console
@@ -266,7 +265,7 @@ async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<T
       | string;
   };
   const response = await fetchJson<BscscanTokenResponse>(
-    `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
+    `${ETHERSCAN_V2_BASE}?chainid=56&module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
     // eslint-disable-next-line no-console
@@ -542,7 +541,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
     });
   }
   const etherscanKey = env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
-  const bscscanKey = env.BSCSCAN_API_KEY ?? "YourApiKeyToken";
+  const explorerKey = env.ETHERSCAN_API_KEY ?? env.BSCSCAN_API_KEY ?? "YourApiKeyToken";
   const trongridKey = env.TRONGRID_API_KEY;
 
   for (const wallet of wallets) {
@@ -568,7 +567,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
       } else {
         if (wallet.network === "bsc") {
           if (wallet.monitorUsdtBep20) {
-            events = await fetchUsdtBscTransfers(wallet.address, bscscanKey);
+            events = await fetchUsdtBscTransfers(wallet.address, explorerKey);
           } else {
             events = [];
           }
