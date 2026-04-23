@@ -52,6 +52,7 @@ export function normalizeAddress(network: "btc" | "eth" | "bsc" | "trc20", addre
 export const createWalletSchema = z.object({
   network: walletNetworkSchema,
   address: z.string().min(14).max(120),
+  label: z.string().trim().min(1).max(MAX_LABEL_LENGTH).optional(),
   monitorEthNative: z.boolean().optional(),
   monitorUsdtErc20: z.boolean().optional(),
   monitorUsdtBep20: z.boolean().optional(),

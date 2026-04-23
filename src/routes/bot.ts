@@ -79,6 +79,7 @@ const I18N = {
     settingsTitle: "Настройки",
     askWalletNetwork: "Выберите сеть для кошелька.",
     askWalletAddress: "Отправьте адрес кошелька. Сеть определю автоматически.",
+    askWalletLabel: "Отправьте имя для кошелька (например, Зарплатный). Для пропуска отправьте «-».",
     askDetectedNetwork: "Адрес подходит под несколько сетей. Выберите нужную.",
     walletAdded: "Кошелек добавлен.",
     walletDeleted: "Кошелек удален.",
@@ -214,6 +215,7 @@ const I18N = {
     settingsTitle: "Settings",
     askWalletNetwork: "Choose wallet network.",
     askWalletAddress: "Send wallet address. I will detect the network automatically.",
+    askWalletLabel: "Send wallet name/label (example: Salary). Send '-' to skip.",
     askDetectedNetwork: "This address matches multiple networks. Choose one.",
     walletAdded: "Wallet added.",
     walletDeleted: "Wallet deleted.",
@@ -485,7 +487,10 @@ async function showWalletsList(
     await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, chatId, t(language, "walletListEmpty"), replyMarkup);
     return;
   }
-  const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
+  const lines = wallets.map((item, index) => {
+    const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
+    return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+  });
   await sendPagedList({
     token: env.TELEGRAM_BOT_TOKEN,
     chatId,
@@ -795,7 +800,7 @@ bot.post("/telegram", async (c) => {
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
     const welcomeText = hasBotAccess
-      ? `${t(language, "greet")}\n\n${t(language, "mainMenu")}`
+      ? t(language, "greet")
       : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`;
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
@@ -815,7 +820,7 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       hasBotAccess
-        ? `${t(language, "greet")}\n\n${t(language, "mainMenu")}`
+        ? t(language, "greet")
         : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`,
       mainKeyboard(language, isAdmin, hasBotAccess)
     );
@@ -861,14 +866,11 @@ bot.post("/telegram", async (c) => {
   if (canAutoAddWalletFromMessage(session)) {
     const candidates = detectAddressNetworks(text) as WalletNetwork[];
     if (candidates.length === 1) {
-      try {
-        await createWallet(c.env, userId, { network: candidates[0], address: text });
-        await setBotSession(c.env, userId, { flow: "section:wallets" });
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
-      } catch (error) {
-        const messageText = mapCreateError(language, error, "wallet");
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
-      }
+      await setBotSession(c.env, userId, {
+        flow: "wallet:add:label",
+        payload: { network: candidates[0], address: text }
+      });
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletLabel"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
     if (candidates.length > 1) {
@@ -907,14 +909,11 @@ bot.post("/telegram", async (c) => {
     }
 
     const network = candidates[0];
-    try {
-      await createWallet(c.env, userId, { network, address: text });
-      await setBotSession(c.env, userId, { flow: "section:wallets" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
-    } catch (error) {
-      const messageText = mapCreateError(language, error, "wallet");
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
-    }
+    await setBotSession(c.env, userId, {
+      flow: "wallet:add:label",
+      payload: { network, address: text }
+    });
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletLabel"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
 
@@ -931,14 +930,11 @@ bot.post("/telegram", async (c) => {
       );
       return c.json({ ok: true });
     }
-    try {
-      await createWallet(c.env, userId, { network, address });
-      await setBotSession(c.env, userId, { flow: "section:wallets" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
-    } catch (error) {
-      const messageText = mapCreateError(language, error, "wallet");
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
-    }
+    await setBotSession(c.env, userId, {
+      flow: "wallet:add:label",
+      payload: { network, address }
+    });
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletLabel"), sectionKeyboard(language));
     return c.json({ ok: true });
   }
 
@@ -954,8 +950,34 @@ bot.post("/telegram", async (c) => {
       );
       return c.json({ ok: true });
     }
+    await setBotSession(c.env, userId, {
+      flow: "wallet:add:label",
+      payload: { network, address: text }
+    });
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askWalletLabel"), sectionKeyboard(language));
+    return c.json({ ok: true });
+  }
+
+  if (session?.flow === "wallet:add:label") {
+    const network = session.payload?.network as WalletNetwork | undefined;
+    const address = session.payload?.address as string | undefined;
+    if (!network || !address) {
+      await clearBotSession(c.env, userId);
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "unknown"),
+        mainKeyboard(language, isAdmin)
+      );
+      return c.json({ ok: true });
+    }
+    const normalizedLabel = text.trim();
+    const label =
+      normalizedLabel === "-" || normalizedLabel.toLowerCase() === "skip" || normalizedLabel.toLowerCase() === "пропустить"
+        ? undefined
+        : normalizedLabel;
     try {
-      await createWallet(c.env, userId, { network, address: text });
+      await createWallet(c.env, userId, { network, address, label });
       await setBotSession(c.env, userId, { flow: "section:wallets" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletAdded"), sectionKeyboard(language));
     } catch (error) {
@@ -1620,7 +1642,10 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletListEmpty"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
+    const lines = wallets.map((item, index) => {
+      const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
+      return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+    });
     await setBotSession(c.env, userId, { flow: "wallet:balance:pick", payload: { ids: wallets.map((item) => item.id) } });
     await sendPagedList({
       token: c.env.TELEGRAM_BOT_TOKEN,
@@ -1739,7 +1764,10 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletDeleteEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = wallets.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}`);
+      const lines = wallets.map((item, index) => {
+        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
+        return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+      });
       await setBotSession(c.env, userId, { flow: "wallet:delete:pick", payload: { ids: wallets.map((item) => item.id) } });
       await sendPagedList({
         token: c.env.TELEGRAM_BOT_TOKEN,

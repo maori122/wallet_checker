@@ -7,6 +7,7 @@ export type WalletItem = {
   id: string;
   network: "btc" | "eth" | "bsc" | "trc20";
   address: string;
+  label: string | null;
   monitorEthNative: boolean;
   monitorUsdtErc20: boolean;
   monitorUsdtBep20: boolean;
@@ -159,13 +160,23 @@ async function mirrorWalletToContacts(
   env: Env,
   userId: string,
   network: "btc" | "eth" | "bsc" | "trc20",
-  normalizedAddress: string
+  normalizedAddress: string,
+  preferredLabel?: string
 ): Promise<void> {
   const hashed = await addressHash(normalizedAddress.toLowerCase());
+  const trimmedPreferred = preferredLabel?.trim();
   const existing = await env.DB.prepare("SELECT id FROM contacts WHERE user_id = ? AND network = ? AND address_hash = ? LIMIT 1")
     .bind(userId, network, hashed)
     .first<{ id: string }>();
   if (existing?.id) {
+    if (trimmedPreferred) {
+      const labelCiphertext = await encryptForUser(trimmedPreferred, userId, env.ENCRYPTION_MASTER_KEY);
+      await env.DB.prepare(
+        "UPDATE contacts SET label_ciphertext = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?"
+      )
+        .bind(labelCiphertext, existing.id, userId)
+        .run();
+    }
     return;
   }
 
@@ -176,7 +187,7 @@ async function mirrorWalletToContacts(
     return;
   }
 
-  const autoLabel = `Tracked ${formatTrackedNetwork(network)} ${shortTrackedAddress(normalizedAddress)}`;
+  const autoLabel = trimmedPreferred ?? `Tracked ${formatTrackedNetwork(network)} ${shortTrackedAddress(normalizedAddress)}`;
   const addressCiphertext = await encryptForUser(normalizedAddress, userId, env.ENCRYPTION_MASTER_KEY);
   const labelCiphertext = await encryptForUser(autoLabel, userId, env.ENCRYPTION_MASTER_KEY);
   try {
@@ -357,13 +368,22 @@ export async function incrementUserReputation(
 
 export async function listWallets(env: Env, userId: string): Promise<WalletItem[]> {
   const result = await env.DB.prepare(
-    "SELECT id, network, address_ciphertext, monitor_eth_native, monitor_usdt_erc20, monitor_usdt_bep20, monitor_usdt_trc20, created_at FROM wallets WHERE user_id = ? ORDER BY created_at DESC"
+    `SELECT w.id, w.network, w.address_ciphertext, w.monitor_eth_native, w.monitor_usdt_erc20, w.monitor_usdt_bep20, w.monitor_usdt_trc20, w.created_at,
+            c.label_ciphertext
+     FROM wallets w
+     LEFT JOIN contacts c
+       ON c.user_id = w.user_id
+      AND c.network = w.network
+      AND c.address_hash = w.address_hash
+     WHERE w.user_id = ?
+     ORDER BY w.created_at DESC`
   )
     .bind(userId)
     .all<{
       id: string;
       network: "btc" | "eth" | "bsc" | "trc20";
       address_ciphertext: string;
+      label_ciphertext: string | null;
       monitor_eth_native: number;
       monitor_usdt_erc20: number;
       monitor_usdt_bep20: number;
@@ -376,6 +396,9 @@ export async function listWallets(env: Env, userId: string): Promise<WalletItem[
       id: row.id,
       network: row.network,
       address: await decryptForUser(row.address_ciphertext, userId, env.ENCRYPTION_MASTER_KEY),
+      label: row.label_ciphertext
+        ? await decryptForUser(row.label_ciphertext, userId, env.ENCRYPTION_MASTER_KEY)
+        : null,
       monitorEthNative: row.monitor_eth_native === 1,
       monitorUsdtErc20: row.monitor_usdt_erc20 === 1,
       monitorUsdtBep20: row.monitor_usdt_bep20 === 1,
@@ -391,6 +414,7 @@ export async function createWallet(
   payload: {
     network: "btc" | "eth" | "bsc" | "trc20";
     address: string;
+    label?: string;
     monitorEthNative?: boolean;
     monitorUsdtErc20?: boolean;
     monitorUsdtBep20?: boolean;
@@ -458,7 +482,7 @@ export async function createWallet(
     network: payload.network,
     address: normalized
   });
-  await mirrorWalletToContacts(env, userId, payload.network, normalized);
+  await mirrorWalletToContacts(env, userId, payload.network, normalized, payload.label);
   await upsertWalletReputationTarget(env, payload.network, normalized);
   await incrementUserReputation(env, userId, 1);
 }

@@ -80,6 +80,7 @@ function pageHtml(): string {
           <h3 id="wallet-add-title">Add tracked wallet</h3>
           <div class="grid">
             <div class="row"><label id="wallet-address-label">Address</label><input id="wallet-address" placeholder="0x... / bc1... / T..." /></div>
+            <div class="row"><label id="wallet-label-label">Label</label><input id="wallet-label" placeholder="Pasha / Main wallet / Salary" /></div>
             <div class="btns"><button class="btn primary" id="wallet-add">Add wallet</button></div>
           </div>
         </div>
@@ -193,6 +194,7 @@ function pageHtml(): string {
           tabAdmin: "Админ",
           walletAddTitle: "Добавить отслеживаемый кошелек",
           address: "Адрес",
+          label: "Метка",
           addWallet: "Добавить кошелек",
           trackedWallets: "Отслеживаемые кошельки",
           addKnownWallet: "Добавить знакомый кошелек",
@@ -280,6 +282,7 @@ function pageHtml(): string {
           tabAdmin: "Admin",
           walletAddTitle: "Add tracked wallet",
           address: "Address",
+          label: "Label",
           addWallet: "Add wallet",
           trackedWallets: "Tracked wallets",
           addKnownWallet: "Add known wallet",
@@ -375,6 +378,8 @@ function pageHtml(): string {
         $("wallet-add-title").textContent = tr("walletAddTitle");
         $("wallet-address-label").textContent = tr("address");
         $("wallet-address").placeholder = "0x... / bc1... / T...";
+        $("wallet-label-label").textContent = tr("label");
+        $("wallet-label").placeholder = tr("label");
         $("wallet-add").textContent = tr("addWallet");
         $("wallet-list-title").textContent = tr("trackedWallets");
         $("contact-add-title").textContent = tr("addKnownWallet");
@@ -539,9 +544,12 @@ function pageHtml(): string {
           return;
         }
         state.wallets.forEach((w) => {
+          const title = w.label
+            ? "<div><b>" + w.label + "</b> <span class='muted'>[" + String(w.network).toUpperCase() + "]</span></div>"
+            : "<div><b>[" + String(w.network).toUpperCase() + "]</b></div>";
           append(
             "wallet-list",
-            '<div><b>[' + String(w.network).toUpperCase() + "]</b></div>" +
+            title +
               "<div class='address-line'><span class='mono addr-pill'>" +
               w.address +
               "</span><button class='btn ghost copy-btn' data-copy='" +
@@ -725,14 +733,16 @@ function pageHtml(): string {
       $("wallet-add").addEventListener("click", async () => {
         try {
           const address = $("wallet-address").value.trim();
+          const label = $("wallet-label").value.trim();
           const detected = await api("/detect-network", "POST", { address });
           const candidates = detected.candidates || [];
           if (!candidates.length) throw new Error(tr("detectFailed"));
           const network = candidates[0];
-          await api("/wallets", "POST", { network, address, monitorEthNative: true, monitorUsdtErc20: true, monitorUsdtBep20: true, monitorUsdtTrc20: true });
+          await api("/wallets", "POST", { network, address, label: label || undefined, monitorEthNative: true, monitorUsdtErc20: true, monitorUsdtBep20: true, monitorUsdtTrc20: true });
           $("wallet-address").value = "";
+          $("wallet-label").value = "";
           toast(tr("walletAdded"));
-          await Promise.all([loadWallets(), loadSummary()]);
+          await Promise.all([loadWallets(), loadContacts(), loadSummary()]);
           renderSummary();
         } catch (e) { toast(e.message || "Error", true); }
       });
@@ -748,7 +758,7 @@ function pageHtml(): string {
           $("contact-address").value = "";
           $("contact-label").value = "";
           toast(tr("contactAdded"));
-          await Promise.all([loadContacts(), loadSummary()]);
+          await Promise.all([loadContacts(), loadWallets(), loadSummary()]);
           renderSummary();
         } catch (e) { toast(e.message || "Error", true); }
       });
@@ -879,7 +889,7 @@ function pageHtml(): string {
           try {
             await api("/contacts/" + delContact, "DELETE");
             toast(tr("contactDeleted"));
-            await Promise.all([loadContacts(), loadSummary()]);
+            await Promise.all([loadContacts(), loadWallets(), loadSummary()]);
             renderSummary();
           } catch (e) { toast(e.message || "Error", true); }
           return;
