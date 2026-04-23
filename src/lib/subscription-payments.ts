@@ -17,7 +17,7 @@ const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 const DEFAULT_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
 const DEFAULT_TRON_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY";
 const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-const BSCSCAN_V2_BASE = "https://api.bscscan.com/v2/api";
+const BSCSCAN_BASE = "https://api.bscscan.com/api";
 
 type PaymentNetwork = "bsc" | "trc20";
 
@@ -82,7 +82,7 @@ async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
   const apiKey = env.BSCSCAN_API_KEY ?? env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
   const toAddress = getAddress(getEvmPayAddress(env));
   const url =
-    `${BSCSCAN_V2_BASE}?chainid=56&module=account&action=tokentx` +
+    `${BSCSCAN_BASE}?module=account&action=tokentx` +
     `&contractaddress=${encodeURIComponent(EVM_USDT_CONTRACT)}` +
     `&address=${encodeURIComponent(toAddress)}` +
     `&page=1&offset=100&sort=desc` +

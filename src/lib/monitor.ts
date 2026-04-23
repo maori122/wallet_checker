@@ -11,7 +11,7 @@ import {
 } from "./db";
 
 const ETHERSCAN_V2_BASE = "https://api.etherscan.io/v2/api";
-const BSCSCAN_V2_BASE = "https://api.bscscan.com/v2/api";
+const BSCSCAN_BASE = "https://api.bscscan.com/api";
 const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 
@@ -71,13 +71,14 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
     const body = await response.text().catch(() => "");
+    const safeUrl = url.replace(/([?&]apikey=)[^&]+/i, "$1***");
     // eslint-disable-next-line no-console
     console.error("HTTP request failed", {
-      url,
+      url: safeUrl,
       status: response.status,
       body: body.slice(0, 600)
     });
-    throw new Error(`Request failed with status ${response.status} for ${url}`);
+    throw new Error(`Request failed with status ${response.status} for ${safeUrl}`);
   }
   return (await response.json()) as T;
 }
@@ -267,7 +268,7 @@ async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<T
       | string;
   };
   const response = await fetchJson<BscscanTokenResponse>(
-    `${BSCSCAN_V2_BASE}?chainid=56&module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
+    `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
     // eslint-disable-next-line no-console
