@@ -43,6 +43,7 @@ type Language = "ru" | "en";
 
 type TelegramUpdate = {
   message?: {
+    message_id: number;
     text?: string;
     chat: {
       id: number;
@@ -489,7 +490,7 @@ async function showWalletsList(
   }
   const lines = wallets.map((item, index) => {
     const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-    return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+    return `${index + 1}. [${formatNetwork(item.network)}]${label}\n${item.address}`;
   });
   await sendPagedList({
     token: env.TELEGRAM_BOT_TOKEN,
@@ -742,6 +743,31 @@ async function sendTelegramMessage(
   });
 }
 
+async function deleteTelegramMessage(token: string, chatId: number, messageId: number): Promise<void> {
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId
+      })
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      // eslint-disable-next-line no-console
+      console.warn("Telegram deleteMessage failed", { status: response.status, body });
+    }
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("Telegram deleteMessage request error", {
+      error: (error as Error)?.message ?? String(error)
+    });
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -811,6 +837,8 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  await deleteTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
+
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
     if (!session) {
       return c.json({ ok: true });
@@ -820,7 +848,7 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       hasBotAccess
-        ? t(language, "greet")
+        ? `🏠 ${t(language, "mainMenu")}`
         : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`,
       mainKeyboard(language, isAdmin, hasBotAccess)
     );
