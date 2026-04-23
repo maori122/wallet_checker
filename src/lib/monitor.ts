@@ -265,6 +265,7 @@ async function fetchUsdtBscTransfers(address: string): Promise<TransferEvent[]> 
     topics: string[];
     data: string;
     transactionHash: string;
+    logIndex?: string;
   };
 
   const toTopic = `0x${"0".repeat(24)}${address.toLowerCase().replace(/^0x/, "")}`;
@@ -293,39 +294,61 @@ async function fetchUsdtBscTransfers(address: string): Promise<TransferEvent[]> 
         throw new Error("BSC RPC eth_blockNumber missing result");
       }
       const latest = BigInt(latestHex);
-      const fromBlock = latest > 7_200n ? latest - 7_200n : 0n;
-      const logsPayload = await fetchJson<JsonRpcResult<RpcLog[]>>(rpcUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 2,
-          method: "eth_getLogs",
-          params: [
-            {
-              address: USDT_BSC_CONTRACT,
-              fromBlock: `0x${fromBlock.toString(16)}`,
-              toBlock: "latest",
-              topics: [ERC20_TRANSFER_TOPIC, null, toTopic]
-            }
-          ]
-        })
-      });
+      const fromBlockFloor = latest > 50_000n ? latest - 50_000n : 0n;
+      const logs: RpcLog[] = [];
+      let chunkSize = 5_000n;
+      let cursor = fromBlockFloor;
 
-      if (!Array.isArray(logsPayload.result)) {
-        if (logsPayload.error?.message) {
-          throw new Error(`BSC RPC eth_getLogs error: ${logsPayload.error.message}`);
+      while (cursor <= latest) {
+        const toBlock = cursor + chunkSize - 1n > latest ? latest : cursor + chunkSize - 1n;
+        const logsPayload = await fetchJson<JsonRpcResult<RpcLog[]>>(rpcUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "eth_getLogs",
+            params: [
+              {
+                address: USDT_BSC_CONTRACT,
+                fromBlock: `0x${cursor.toString(16)}`,
+                toBlock: `0x${toBlock.toString(16)}`,
+                topics: [ERC20_TRANSFER_TOPIC, null, toTopic]
+              }
+            ]
+          })
+        });
+
+        if (!Array.isArray(logsPayload.result)) {
+          if (logsPayload.error?.message) {
+            const message = logsPayload.error.message.toLowerCase();
+            if (message.includes("limit exceeded") && chunkSize > 200n) {
+              chunkSize = chunkSize / 2n;
+              continue;
+            }
+            throw new Error(`BSC RPC eth_getLogs error: ${logsPayload.error.message}`);
+          }
+          cursor = toBlock + 1n;
+          continue;
         }
-        return [];
+
+        logs.push(...logsPayload.result);
+        cursor = toBlock + 1n;
       }
 
       const items: TransferEvent[] = [];
-      for (const row of logsPayload.result) {
+      const seen = new Set<string>();
+      for (const row of logs) {
         if (!row.transactionHash || !row.data || !Array.isArray(row.topics) || row.topics.length < 3) {
           continue;
         }
+        const dedup = `${row.transactionHash}:${row.logIndex ?? ""}:${row.topics[2]}`;
+        if (seen.has(dedup)) {
+          continue;
+        }
+        seen.add(dedup);
         const from = `0x${row.topics[1].slice(-40)}`;
         const to = `0x${row.topics[2].slice(-40)}`;
         const value = BigInt(row.data);

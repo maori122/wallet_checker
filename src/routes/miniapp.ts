@@ -79,6 +79,16 @@ function pageHtml(): string {
         <div class="card">
           <h3 id="wallet-add-title">Add tracked wallet</h3>
           <div class="grid">
+            <div class="row">
+              <label id="wallet-network-label">Network</label>
+              <select id="wallet-network">
+                <option value="auto">Auto</option>
+                <option value="btc">BTC</option>
+                <option value="eth">ETH</option>
+                <option value="bsc">BEP20</option>
+                <option value="trc20">TRC20</option>
+              </select>
+            </div>
             <div class="row"><label id="wallet-address-label">Address</label><input id="wallet-address" placeholder="0x... / bc1... / T..." /></div>
             <div class="row"><label id="wallet-label-label">Label</label><input id="wallet-label" placeholder="Pasha / Main wallet / Salary" /></div>
             <div class="btns"><button class="btn primary" id="wallet-add">Add wallet</button></div>
@@ -94,6 +104,16 @@ function pageHtml(): string {
         <div class="card">
           <h3 id="contact-add-title">Add known wallet</h3>
           <div class="grid">
+            <div class="row">
+              <label id="contact-network-label">Network</label>
+              <select id="contact-network">
+                <option value="auto">Auto</option>
+                <option value="btc">BTC</option>
+                <option value="eth">ETH</option>
+                <option value="bsc">BEP20</option>
+                <option value="trc20">TRC20</option>
+              </select>
+            </div>
             <div class="row"><label id="contact-address-label">Address</label><input id="contact-address" placeholder="Address" /></div>
             <div class="row"><label id="contact-label-label">Label</label><input id="contact-label" placeholder="Label" /></div>
             <div class="btns"><button class="btn primary" id="contact-add">Add contact</button></div>
@@ -266,6 +286,8 @@ function pageHtml(): string {
           contactDeleted: "Контакт удален.",
           promoStateUpdated: "Статус промокода обновлен.",
           detectFailed: "Не удалось определить сеть.",
+          chooseNetworkForAddress: "Для этого адреса подходит несколько сетей. Выберите сеть вручную.",
+          selectedNetworkMismatch: "Адрес не соответствует выбранной сети.",
           openFromTelegram: "Откройте Mini App из Telegram для авторизации.",
           accessFirst: "Сначала оплатите подписку в разделе Cabinet, затем откроется весь функционал."
         },
@@ -354,6 +376,8 @@ function pageHtml(): string {
           contactDeleted: "Contact deleted.",
           promoStateUpdated: "Promo state updated.",
           detectFailed: "Could not detect network.",
+          chooseNetworkForAddress: "This address matches multiple networks. Choose network manually.",
+          selectedNetworkMismatch: "Address does not match selected network.",
           openFromTelegram: "Open from Telegram to authorize.",
           accessFirst: "Pay subscription in Cabinet first, then full functionality will unlock."
         }
@@ -376,6 +400,7 @@ function pageHtml(): string {
         $("tab-settings").textContent = tr("tabSettings");
         $("admin-tab").textContent = tr("tabAdmin");
         $("wallet-add-title").textContent = tr("walletAddTitle");
+        $("wallet-network-label").textContent = tr("network");
         $("wallet-address-label").textContent = tr("address");
         $("wallet-address").placeholder = "0x... / bc1... / T...";
         $("wallet-label-label").textContent = tr("label");
@@ -383,6 +408,7 @@ function pageHtml(): string {
         $("wallet-add").textContent = tr("addWallet");
         $("wallet-list-title").textContent = tr("trackedWallets");
         $("contact-add-title").textContent = tr("addKnownWallet");
+        $("contact-network-label").textContent = tr("network");
         $("contact-address-label").textContent = tr("address");
         $("contact-address").placeholder = tr("address");
         $("contact-label-label").textContent = tr("label");
@@ -734,10 +760,19 @@ function pageHtml(): string {
         try {
           const address = $("wallet-address").value.trim();
           const label = $("wallet-label").value.trim();
+          const preferredNetwork = $("wallet-network").value;
           const detected = await api("/detect-network", "POST", { address });
           const candidates = detected.candidates || [];
           if (!candidates.length) throw new Error(tr("detectFailed"));
-          const network = candidates[0];
+          let network = candidates[0];
+          if (preferredNetwork !== "auto") {
+            if (!candidates.includes(preferredNetwork)) {
+              throw new Error(tr("selectedNetworkMismatch"));
+            }
+            network = preferredNetwork;
+          } else if (candidates.length > 1) {
+            throw new Error(tr("chooseNetworkForAddress"));
+          }
           await api("/wallets", "POST", { network, address, label: label || undefined, monitorEthNative: true, monitorUsdtErc20: true, monitorUsdtBep20: true, monitorUsdtTrc20: true });
           $("wallet-address").value = "";
           $("wallet-label").value = "";
@@ -751,10 +786,20 @@ function pageHtml(): string {
         try {
           const address = $("contact-address").value.trim();
           const label = $("contact-label").value.trim();
+          const preferredNetwork = $("contact-network").value;
           const detected = await api("/detect-network", "POST", { address });
           const candidates = detected.candidates || [];
           if (!candidates.length) throw new Error(tr("detectFailed"));
-          await api("/contacts", "POST", { network: candidates[0], address, label });
+          let network = candidates[0];
+          if (preferredNetwork !== "auto") {
+            if (!candidates.includes(preferredNetwork)) {
+              throw new Error(tr("selectedNetworkMismatch"));
+            }
+            network = preferredNetwork;
+          } else if (candidates.length > 1) {
+            throw new Error(tr("chooseNetworkForAddress"));
+          }
+          await api("/contacts", "POST", { network, address, label });
           $("contact-address").value = "";
           $("contact-label").value = "";
           toast(tr("contactAdded"));
