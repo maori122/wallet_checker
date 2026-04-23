@@ -841,8 +841,14 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
     await clearBotSession(c.env, userId);
-    // Keep existing bot messages (including notifications) intact and avoid
-    // posting duplicate welcome text on every "Main menu" tap.
+    // Explicitly resend the main keyboard so user can always exit nested flows,
+    // including admin panel, in one tap.
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHint"),
+      mainKeyboard(language, isAdmin, hasBotAccess)
+    );
     return c.json({ ok: true });
   }
 
