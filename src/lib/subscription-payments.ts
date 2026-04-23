@@ -90,6 +90,7 @@ async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
     transactionHash: string;
     data: string;
     blockNumber: string;
+    logIndex?: string;
   };
 
   let lastError: unknown = null;
@@ -115,63 +116,87 @@ async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
         throw new Error(`BSC_RPC_BLOCKNUMBER_ERROR_${latestPayload.error?.message ?? "NO_RESULT"}`);
       }
       const latest = BigInt(latestPayload.result);
-      const fromBlock = latest > 7_200n ? latest - 7_200n : 0n;
+      const fromBlock = latest > 50_000n ? latest - 50_000n : 0n;
+      const logs: RpcLog[] = [];
+      let chunkSize = 5_000n;
+      let cursor = fromBlock;
 
-      const logsResp = await fetch(rpcUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 2,
-          method: "eth_getLogs",
-          params: [
-            {
-              address: EVM_USDT_CONTRACT,
-              fromBlock: `0x${fromBlock.toString(16)}`,
-              toBlock: "latest",
-              topics: [ERC20_TRANSFER_TOPIC, null, toTopic]
-            }
-          ]
-        })
-      });
-      if (!logsResp.ok) {
-        throw new Error(`BSC_RPC_LOGS_STATUS_${logsResp.status}`);
-      }
-      const logsPayload = (await logsResp.json()) as JsonRpcResult<RpcLog[]>;
-      if (!Array.isArray(logsPayload.result)) {
-        throw new Error(`BSC_RPC_LOGS_ERROR_${logsPayload.error?.message ?? "NO_RESULT"}`);
-      }
-
-      const txs: PaymentTx[] = [];
-      for (const row of logsPayload.result) {
-        if (!row?.transactionHash || !row?.data || !row?.blockNumber) {
-          continue;
-        }
-
-        const blockResp = await fetch(rpcUrl, {
+      while (cursor <= latest) {
+        const toBlock = cursor + chunkSize - 1n > latest ? latest : cursor + chunkSize - 1n;
+        const logsResp = await fetch(rpcUrl, {
           method: "POST",
           headers: {
             "content-type": "application/json"
           },
           body: JSON.stringify({
             jsonrpc: "2.0",
-            id: 3,
-            method: "eth_getBlockByNumber",
-            params: [row.blockNumber, false]
+            id: 2,
+            method: "eth_getLogs",
+            params: [
+              {
+                address: EVM_USDT_CONTRACT,
+                fromBlock: `0x${cursor.toString(16)}`,
+                toBlock: `0x${toBlock.toString(16)}`,
+                topics: [ERC20_TRANSFER_TOPIC, null, toTopic]
+              }
+            ]
           })
         });
-        if (!blockResp.ok) {
+        if (!logsResp.ok) {
+          throw new Error(`BSC_RPC_LOGS_STATUS_${logsResp.status}`);
+        }
+        const logsPayload = (await logsResp.json()) as JsonRpcResult<RpcLog[]>;
+        if (!Array.isArray(logsPayload.result)) {
+          const message = logsPayload.error?.message?.toLowerCase() ?? "NO_RESULT";
+          if (message.includes("limit exceeded") && chunkSize > 200n) {
+            chunkSize = chunkSize / 2n;
+            continue;
+          }
+          throw new Error(`BSC_RPC_LOGS_ERROR_${logsPayload.error?.message ?? "NO_RESULT"}`);
+        }
+        logs.push(...logsPayload.result);
+        cursor = toBlock + 1n;
+      }
+
+      const txs: PaymentTx[] = [];
+      const timestampsByBlock = new Map<string, number>();
+      const seen = new Set<string>();
+      for (const row of logs) {
+        if (!row?.transactionHash || !row?.data || !row?.blockNumber) {
           continue;
         }
-        const blockPayload = (await blockResp.json()) as JsonRpcResult<{ timestamp?: string }>;
-        const tsHex = blockPayload.result?.timestamp ?? "0x0";
+        const dedup = `${row.transactionHash}:${row.logIndex ?? ""}`;
+        if (seen.has(dedup)) {
+          continue;
+        }
+        seen.add(dedup);
+        let blockTimestampMs = timestampsByBlock.get(row.blockNumber);
+        if (!Number.isFinite(blockTimestampMs)) {
+          const blockResp = await fetch(rpcUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 3,
+              method: "eth_getBlockByNumber",
+              params: [row.blockNumber, false]
+            })
+          });
+          if (!blockResp.ok) {
+            continue;
+          }
+          const blockPayload = (await blockResp.json()) as JsonRpcResult<{ timestamp?: string }>;
+          const tsHex = blockPayload.result?.timestamp ?? "0x0";
+          blockTimestampMs = Number.parseInt(tsHex, 16) * 1000;
+          timestampsByBlock.set(row.blockNumber, blockTimestampMs);
+        }
 
         txs.push({
           txid: row.transactionHash,
           amountUnits: BigInt(row.data),
-          timestampMs: Number.parseInt(tsHex, 16) * 1000
+          timestampMs: blockTimestampMs ?? 0
         });
       }
       return txs;
@@ -320,10 +345,28 @@ export async function processSubscriptionPayments(
 
   const hasBsc = pending.some((item) => item.network === "bsc");
   const hasTrc20 = pending.some((item) => item.network === "trc20");
-  const [bscTxs, trc20Txs] = await Promise.all([
-    hasBsc ? fetchBscIncomingUsdt(env) : Promise.resolve([]),
-    hasTrc20 ? fetchTrc20IncomingUsdt(env) : Promise.resolve([])
-  ]);
+  let bscTxs: PaymentTx[] = [];
+  let trc20Txs: PaymentTx[] = [];
+  if (hasBsc) {
+    try {
+      bscTxs = await fetchBscIncomingUsdt(env);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Subscription BSC payment scan failed", {
+        error: (error as Error)?.message ?? String(error)
+      });
+    }
+  }
+  if (hasTrc20) {
+    try {
+      trc20Txs = await fetchTrc20IncomingUsdt(env);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Subscription TRC20 payment scan failed", {
+        error: (error as Error)?.message ?? String(error)
+      });
+    }
+  }
   const usedTxids = new Set<string>();
   let paid = 0;
   let expired = 0;

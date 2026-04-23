@@ -1,6 +1,7 @@
 import { formatUnits, getAddress, isAddress } from "viem";
 import { TronWeb, utils as tronUtils } from "tronweb";
 import type { Env } from "../types/env";
+import { DEFAULT_SETTINGS } from "./constants";
 import {
   appendTransferHistory,
   getSettings,
@@ -48,6 +49,29 @@ function maskAddress(value: string): string {
 
 function toFixedTrimmed(value: number, decimals = 8): string {
   return value.toFixed(decimals).replace(/\.?0+$/, "");
+}
+
+function getThresholdForEvent(
+  event: TransferEvent,
+  settings: { btcThreshold: string; ethThreshold: string; usdtThreshold: string }
+): number {
+  const raw =
+    event.asset === "BTC"
+      ? settings.btcThreshold
+      : event.asset === "ETH"
+        ? settings.ethThreshold
+        : settings.usdtThreshold;
+  const parsed = Number.parseFloat(raw);
+  if (Number.isFinite(parsed) && parsed >= 0) {
+    return parsed;
+  }
+  const fallback =
+    event.asset === "BTC"
+      ? Number.parseFloat(DEFAULT_SETTINGS.btcThreshold)
+      : event.asset === "ETH"
+        ? Number.parseFloat(DEFAULT_SETTINGS.ethThreshold)
+        : Number.parseFloat(DEFAULT_SETTINGS.usdtThreshold);
+  return Number.isFinite(fallback) && fallback >= 0 ? fallback : 0;
 }
 
 async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
@@ -649,13 +673,13 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
   const trongridKey = env.TRONGRID_API_KEY;
 
   for (const wallet of wallets) {
-    const settings = await getSettings(env, wallet.userId);
-    if (!settings.blockchainNotificationsEnabled) {
-      continue;
-    }
-
-    let events: TransferEvent[] = [];
     try {
+      const settings = await getSettings(env, wallet.userId);
+      if (!settings.blockchainNotificationsEnabled) {
+        continue;
+      }
+
+      let events: TransferEvent[] = [];
       if (wallet.network === "btc") {
         events = await fetchBtcTransfers(wallet.address);
       } else if (wallet.network === "eth") {
@@ -683,89 +707,98 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
           }
         }
       }
+      for (const event of events) {
+        try {
+          const threshold = getThresholdForEvent(event, settings);
+          if (event.amount < threshold) {
+            continue;
+          }
+
+          const normalizedFrom = normalizeNetworkAddress(event.network, event.from);
+          const normalizedTo = normalizeNetworkAddress(event.network, event.to);
+          const counterpartyAddress =
+            event.direction === "incoming"
+              ? normalizedFrom ?? event.from
+              : normalizedTo ?? event.to;
+
+          await appendTransferHistory(env, {
+            userId: wallet.userId,
+            walletId: wallet.id,
+            network: event.network,
+            direction: event.direction,
+            asset: event.asset,
+            txid: event.txid,
+            fromAddress: normalizedFrom ?? event.from,
+            counterpartyAddress,
+            amount: toFixedTrimmed(event.amount)
+          });
+
+          if (event.direction !== "incoming") {
+            continue;
+          }
+
+          const monitoredWalletAddress =
+            normalizeNetworkAddress(event.network, wallet.address) ?? wallet.address;
+          if (normalizedFrom) {
+            const senderStopped = await isStoppedWallet(env, event.network, normalizedFrom);
+            if (senderStopped) {
+              continue;
+            }
+          }
+          const receiverStopped = await isStoppedWallet(env, event.network, monitoredWalletAddress);
+          if (receiverStopped) {
+            continue;
+          }
+
+          const dedupKey = `${wallet.id}:${event.direction}:${event.network}:${event.asset}:${event.txid}`;
+          const reserved = await reserveNotificationDedup(env, wallet.userId, dedupKey);
+          if (!reserved) {
+            continue;
+          }
+          const label = normalizedFrom
+            ? await resolveContactLabel(env, wallet.userId, event.network, normalizedFrom)
+            : null;
+
+          const usdRate =
+            event.asset === "BTC" ? prices.btc : event.asset === "ETH" ? prices.eth : prices.usdt;
+          const usdEstimate =
+            settings.showUsdEstimate && Number.isFinite(usdRate) && usdRate > 0
+              ? event.amount * usdRate
+              : null;
+
+          const text = formatNotification({
+            language: settings.language,
+            label,
+            from: normalizedFrom ?? event.from,
+            toAddress: wallet.address,
+            amount: event.amount,
+            asset: event.asset,
+            usdEstimate
+          });
+
+          await sendTelegramMessage(env, wallet.userId, text);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error("Monitoring event processing failed", {
+            walletId: wallet.id,
+            userId: wallet.userId,
+            txid: event.txid,
+            asset: event.asset,
+            network: event.network,
+            error: (error as Error)?.message ?? String(error)
+          });
+          continue;
+        }
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error("Monitoring fetch failed", {
+      console.error("Monitoring wallet iteration failed", {
         walletId: wallet.id,
         userId: wallet.userId,
         network: wallet.network,
         error: (error as Error)?.message ?? String(error)
       });
       continue;
-    }
-
-    for (const event of events) {
-      const threshold =
-        event.asset === "BTC"
-          ? Number.parseFloat(settings.btcThreshold)
-          : event.asset === "ETH"
-            ? Number.parseFloat(settings.ethThreshold)
-            : Number.parseFloat(settings.usdtThreshold);
-
-      if (!Number.isFinite(threshold) || event.amount < threshold) {
-        continue;
-      }
-
-      const normalizedFrom = normalizeNetworkAddress(event.network, event.from);
-      const normalizedTo = normalizeNetworkAddress(event.network, event.to);
-      const counterpartyAddress =
-        event.direction === "incoming"
-          ? normalizedFrom ?? event.from
-          : normalizedTo ?? event.to;
-
-      await appendTransferHistory(env, {
-        userId: wallet.userId,
-        walletId: wallet.id,
-        network: event.network,
-        direction: event.direction,
-        asset: event.asset,
-        txid: event.txid,
-        fromAddress: normalizedFrom ?? event.from,
-        counterpartyAddress,
-        amount: toFixedTrimmed(event.amount)
-      });
-
-      if (event.direction !== "incoming") {
-        continue;
-      }
-
-      const monitoredWalletAddress =
-        normalizeNetworkAddress(event.network, wallet.address) ?? wallet.address;
-      if (normalizedFrom) {
-        const senderStopped = await isStoppedWallet(env, event.network, normalizedFrom);
-        if (senderStopped) {
-          continue;
-        }
-      }
-      const receiverStopped = await isStoppedWallet(env, event.network, monitoredWalletAddress);
-      if (receiverStopped) {
-        continue;
-      }
-
-      const dedupKey = `${wallet.id}:${event.direction}:${event.network}:${event.asset}:${event.txid}`;
-      const reserved = await reserveNotificationDedup(env, wallet.userId, dedupKey);
-      if (!reserved) {
-        continue;
-      }
-      const label = normalizedFrom
-        ? await resolveContactLabel(env, wallet.userId, event.network, normalizedFrom)
-        : null;
-
-      const usdRate = event.asset === "BTC" ? prices.btc : event.asset === "ETH" ? prices.eth : prices.usdt;
-      const usdEstimate =
-        settings.showUsdEstimate && Number.isFinite(usdRate) && usdRate > 0 ? event.amount * usdRate : null;
-
-      const text = formatNotification({
-        language: settings.language,
-        label,
-        from: normalizedFrom ?? event.from,
-        toAddress: wallet.address,
-        amount: event.amount,
-        asset: event.asset,
-        usdEstimate
-      });
-
-      await sendTelegramMessage(env, wallet.userId, text);
     }
   }
 }
