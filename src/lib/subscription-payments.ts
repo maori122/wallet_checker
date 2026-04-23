@@ -1,4 +1,4 @@
-import { createPublicClient, formatUnits, getAddress, http, parseAbiItem } from "viem";
+import { formatUnits, getAddress } from "viem";
 import type { Env, Language } from "../types/env";
 import {
   activatePaidSubscription,
@@ -17,7 +17,7 @@ const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 const DEFAULT_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
 const DEFAULT_TRON_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY";
 const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-const BSC_RPC_URLS = ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"] as const;
+const BSCSCAN_BASE = "https://api.bscscan.com/api";
 
 type PaymentNetwork = "bsc" | "trc20";
 
@@ -79,43 +79,57 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
 }
 
 async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
-  const event = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+  const apiKey = env.BSCSCAN_API_KEY ?? "YourApiKeyToken";
   const toAddress = getAddress(getEvmPayAddress(env));
-  let lastError: unknown = null;
-  for (const rpcUrl of BSC_RPC_URLS) {
-    try {
-      const client = createPublicClient({
-        transport: http(rpcUrl)
-      });
-      const latest = await client.getBlockNumber();
-      const fromBlock = latest > 30_000n ? latest - 30_000n : 0n;
-      const logs = await client.getLogs({
-        address: EVM_USDT_CONTRACT as `0x${string}`,
-        event,
-        args: { to: toAddress },
-        fromBlock,
-        toBlock: latest
-      });
-      const txs: PaymentTx[] = [];
-      for (const log of logs) {
-        const txid = log.transactionHash;
-        const block = await client.getBlock({ blockNumber: log.blockNumber });
-        const timestampMs = Number(block.timestamp) * 1000;
-        txs.push({
-          txid,
-          amountUnits: log.args.value ?? 0n,
-          timestampMs
-        });
-      }
-      return txs;
-    } catch (error) {
-      lastError = error;
+  const url =
+    `${BSCSCAN_BASE}?module=account&action=tokentx` +
+    `&contractaddress=${encodeURIComponent(EVM_USDT_CONTRACT)}` +
+    `&address=${encodeURIComponent(toAddress)}` +
+    `&page=1&offset=100&sort=desc` +
+    `&apikey=${encodeURIComponent(apiKey)}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`BSCSCAN_STATUS_${response.status}`);
+  }
+  const payload = (await response.json()) as {
+    status?: string;
+    message?: string;
+    result?: Array<{
+      hash?: string;
+      to?: string;
+      value?: string;
+      timeStamp?: string;
+      tokenDecimal?: string;
+      contractAddress?: string;
+    }> | string;
+  };
+
+  if (payload.status !== "1" || !Array.isArray(payload.result)) {
+    // When no transactions exist, BscScan often returns status=0 with a message like "No transactions found".
+    return [];
+  }
+
+  const txs: PaymentTx[] = [];
+  for (const row of payload.result) {
+    if (!row?.hash || !row?.value || !row?.timeStamp) {
+      continue;
     }
+    if ((row.contractAddress ?? "").toLowerCase() !== EVM_USDT_CONTRACT.toLowerCase()) {
+      continue;
+    }
+    if ((row.to ?? "").toLowerCase() !== toAddress.toLowerCase()) {
+      continue;
+    }
+    const amountUnitsRaw = BigInt(row.value);
+    const tsSeconds = Number.parseInt(row.timeStamp, 10);
+    txs.push({
+      txid: row.hash,
+      amountUnits: amountUnitsRaw,
+      timestampMs: Number.isFinite(tsSeconds) ? tsSeconds * 1000 : 0
+    });
   }
-  if (lastError) {
-    throw lastError;
-  }
-  return [];
+  return txs;
 }
 
 async function fetchTrc20IncomingUsdt(env: Env): Promise<PaymentTx[]> {
