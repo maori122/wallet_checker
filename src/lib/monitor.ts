@@ -35,6 +35,7 @@ let priceCache:
       usdt: number;
     }
   | null = null;
+const PRICE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function maskAddress(value: string): string {
   if (value.length <= 14) {
@@ -373,12 +374,12 @@ async function fetchUsdtTrc20Transfers(address: string, apiKey?: string): Promis
 
 async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number }> {
   const now = Date.now();
-  if (priceCache && now - priceCache.timestamp < 60_000) {
+  if (priceCache && now - priceCache.timestamp < PRICE_CACHE_TTL_MS) {
     return {
       btc: priceCache.btc,
       eth: priceCache.eth,
       usdt: priceCache.usdt
-    };
+    }
   }
 
   type PriceResponse = {
@@ -390,6 +391,9 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
     BTC?: { USD?: number };
     ETH?: { USD?: number };
     USDT?: { USD?: number };
+  };
+  type CoinbasePriceResponse = {
+    data?: { amount?: string };
   };
   try {
     const result = await fetchJson<PriceResponse>(
@@ -404,7 +408,7 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
     const btc = result.bitcoin?.usd ?? 0;
     const eth = result.ethereum?.usd ?? 0;
     const usdt = result.tether?.usd ?? 1;
-    if (btc <= 0 || eth <= 0 || usdt <= 0) {
+    if (btc <= 0 || eth <= 0) {
       throw new Error("CoinGecko returned incomplete prices");
     }
 
@@ -433,7 +437,7 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
       const btc = alt.BTC?.USD ?? 0;
       const eth = alt.ETH?.USD ?? 0;
       const usdt = alt.USDT?.USD ?? 1;
-      if (btc <= 0 || eth <= 0 || usdt <= 0) {
+      if (btc <= 0 || eth <= 0) {
         throw new Error("Fallback provider returned incomplete prices");
       }
       priceCache = {
@@ -443,18 +447,47 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
         usdt
       };
     } catch (fallbackError) {
-      // If both providers fail, keep monitoring transfers and just skip USD estimates.
-      // eslint-disable-next-line no-console
-      console.warn("Fallback price provider failed; USD estimates disabled temporarily", {
-        error: (fallbackError as Error)?.message ?? String(fallbackError)
-      });
-      const fallback = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
-      priceCache = {
-        timestamp: now,
-        btc: fallback.btc,
-        eth: fallback.eth,
-        usdt: fallback.usdt
-      };
+      try {
+        const [btcSpot, ethSpot] = await Promise.all([
+          fetchJson<CoinbasePriceResponse>("https://api.coinbase.com/v2/prices/BTC-USD/spot", {
+            headers: {
+              accept: "application/json",
+              "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
+            }
+          }),
+          fetchJson<CoinbasePriceResponse>("https://api.coinbase.com/v2/prices/ETH-USD/spot", {
+            headers: {
+              accept: "application/json",
+              "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
+            }
+          })
+        ]);
+        const btc = Number.parseFloat(btcSpot.data?.amount ?? "");
+        const eth = Number.parseFloat(ethSpot.data?.amount ?? "");
+        if (!Number.isFinite(btc) || !Number.isFinite(eth) || btc <= 0 || eth <= 0) {
+          throw new Error("Coinbase fallback returned invalid prices");
+        }
+        priceCache = {
+          timestamp: now,
+          btc,
+          eth,
+          usdt: 1
+        };
+      } catch (lastError) {
+        // If all providers fail, keep monitoring transfers and just skip USD estimates.
+        // eslint-disable-next-line no-console
+        console.warn("All price providers failed; USD estimates disabled temporarily", {
+          error: (lastError as Error)?.message ?? String(lastError),
+          previous: (fallbackError as Error)?.message ?? String(fallbackError)
+        });
+        const fallback = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
+        priceCache = {
+          timestamp: now,
+          btc: fallback.btc,
+          eth: fallback.eth,
+          usdt: fallback.usdt
+        };
+      }
     };
   }
 
