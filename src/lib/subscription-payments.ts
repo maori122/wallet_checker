@@ -149,8 +149,12 @@ async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
         const logsPayload = (await logsResp.json()) as JsonRpcResult<RpcLog[]>;
         if (!Array.isArray(logsPayload.result)) {
           const message = logsPayload.error?.message?.toLowerCase() ?? "NO_RESULT";
-          if (message.includes("limit exceeded") && chunkSize > 200n) {
+          if ((message.includes("limit exceeded") || message.includes("invalid block range")) && chunkSize > 200n) {
             chunkSize = chunkSize / 2n;
+            continue;
+          }
+          if (message.includes("invalid block range")) {
+            cursor = toBlock + 1n;
             continue;
           }
           throw new Error(`BSC_RPC_LOGS_ERROR_${logsPayload.error?.message ?? "NO_RESULT"}`);

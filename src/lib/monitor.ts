@@ -349,8 +349,13 @@ async function fetchUsdtBscTransfers(address: string): Promise<TransferEvent[]> 
         if (!Array.isArray(logsPayload.result)) {
           if (logsPayload.error?.message) {
             const message = logsPayload.error.message.toLowerCase();
-            if (message.includes("limit exceeded") && chunkSize > 200n) {
+            if ((message.includes("limit exceeded") || message.includes("invalid block range")) && chunkSize > 200n) {
               chunkSize = chunkSize / 2n;
+              continue;
+            }
+            if (message.includes("invalid block range")) {
+              // Skip a problematic range from unstable RPC providers instead of failing whole wallet.
+              cursor = toBlock + 1n;
               continue;
             }
             throw new Error(`BSC RPC eth_getLogs error: ${logsPayload.error.message}`);
