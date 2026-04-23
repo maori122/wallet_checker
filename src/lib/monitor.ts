@@ -11,9 +11,10 @@ import {
 } from "./db";
 
 const ETHERSCAN_V2_BASE = "https://api.etherscan.io/v2/api";
-const BSCSCAN_BASE = "https://api.bscscan.com/api";
+const BSC_RPC_URLS = ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"] as const;
 const USDT_ETH_CONTRACT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const USDT_BSC_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
+const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
 
 type Asset = "BTC" | "ETH" | "USDT";
 type Network = "btc" | "eth" | "bsc" | "trc20";
@@ -67,17 +68,19 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
   }
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function fetchJson<T>(url: string, init?: RequestInit, suppressErrorLog = false): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     const safeUrl = url.replace(/([?&]apikey=)[^&]+/i, "$1***");
-    // eslint-disable-next-line no-console
-    console.error("HTTP request failed", {
-      url: safeUrl,
-      status: response.status,
-      body: body.slice(0, 600)
-    });
+    if (!suppressErrorLog) {
+      // eslint-disable-next-line no-console
+      console.error("HTTP request failed", {
+        url: safeUrl,
+        status: response.status,
+        body: body.slice(0, 600)
+      });
+    }
     throw new Error(`Request failed with status ${response.status} for ${safeUrl}`);
   }
   return (await response.json()) as T;
@@ -252,61 +255,103 @@ async function fetchUsdtTransfers(address: string, apiKey: string): Promise<Tran
   return items;
 }
 
-async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
-  type BscscanTokenResponse = {
-    status: string;
-    message?: string;
-    result:
-      | Array<{
-      hash: string;
-      from: string;
-      to: string;
-      value: string;
-      tokenDecimal: string;
-      contractAddress: string;
-    }>
-      | string;
+async function fetchUsdtBscTransfers(address: string): Promise<TransferEvent[]> {
+  type JsonRpcResult<T> = {
+    result?: T;
+    error?: { message?: string };
   };
-  const response = await fetchJson<BscscanTokenResponse>(
-    `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
-  );
-  if (response.status !== "1" || !Array.isArray(response.result)) {
-    // eslint-disable-next-line no-console
-    console.warn("BscScan tokentx not ok", {
-      status: response.status,
-      message: response.message,
-      result: typeof response.result === "string" ? response.result : "non-array"
-    });
-    return [];
-  }
-  const normalized = address.toLowerCase();
-  const items: TransferEvent[] = [];
+  type RpcLog = {
+    address: string;
+    topics: string[];
+    data: string;
+    transactionHash: string;
+  };
 
-  for (const row of response.result) {
-    const toMatches = (row.to ?? "").toLowerCase() === normalized;
-    const fromMatches = (row.from ?? "").toLowerCase() === normalized;
-    if (!toMatches && !fromMatches) {
-      continue;
+  const toTopic = `0x${"0".repeat(24)}${address.toLowerCase().replace(/^0x/, "")}`;
+  let lastError: unknown = null;
+
+  for (const rpcUrl of BSC_RPC_URLS) {
+    try {
+      const blockNumberPayload = (await fetchJson<JsonRpcResult<string>>(
+        rpcUrl,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "eth_blockNumber",
+            params: []
+          })
+        }
+      )) as JsonRpcResult<string>;
+
+      const latestHex = blockNumberPayload.result;
+      if (!latestHex) {
+        throw new Error("BSC RPC eth_blockNumber missing result");
+      }
+      const latest = BigInt(latestHex);
+      const fromBlock = latest > 7_200n ? latest - 7_200n : 0n;
+      const logsPayload = await fetchJson<JsonRpcResult<RpcLog[]>>(rpcUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "eth_getLogs",
+          params: [
+            {
+              address: USDT_BSC_CONTRACT,
+              fromBlock: `0x${fromBlock.toString(16)}`,
+              toBlock: "latest",
+              topics: [ERC20_TRANSFER_TOPIC, null, toTopic]
+            }
+          ]
+        })
+      });
+
+      if (!Array.isArray(logsPayload.result)) {
+        if (logsPayload.error?.message) {
+          throw new Error(`BSC RPC eth_getLogs error: ${logsPayload.error.message}`);
+        }
+        return [];
+      }
+
+      const items: TransferEvent[] = [];
+      for (const row of logsPayload.result) {
+        if (!row.transactionHash || !row.data || !Array.isArray(row.topics) || row.topics.length < 3) {
+          continue;
+        }
+        const from = `0x${row.topics[1].slice(-40)}`;
+        const to = `0x${row.topics[2].slice(-40)}`;
+        const value = BigInt(row.data);
+        if (value <= 0n) {
+          continue;
+        }
+        items.push({
+          txid: row.transactionHash,
+          from,
+          to,
+          direction: "incoming",
+          amount: Number(formatUnits(value, 18)),
+          asset: "USDT",
+          network: "bsc"
+        });
+      }
+      return items;
+    } catch (error) {
+      lastError = error;
     }
-    if ((row.contractAddress ?? "").toLowerCase() !== USDT_BSC_CONTRACT.toLowerCase()) {
-      continue;
-    }
-    const decimals = Number.parseInt(row.tokenDecimal, 10) || 18;
-    const value = BigInt(row.value);
-    if (value <= 0n) {
-      continue;
-    }
-    items.push({
-      txid: row.hash,
-      from: row.from ?? null,
-      to: row.to ?? null,
-      direction: toMatches ? "incoming" : "outgoing",
-      amount: Number(formatUnits(value, decimals)),
-      asset: "USDT",
-      network: "bsc"
-    });
   }
-  return items;
+
+  if (lastError) {
+    throw lastError;
+  }
+  return [];
 }
 
 async function fetchUsdtTrc20Transfers(address: string, apiKey?: string): Promise<TransferEvent[]> {
@@ -405,7 +450,8 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
           accept: "application/json",
           "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
         }
-      }
+      },
+      true
     );
     const btc = result.bitcoin?.usd ?? 0;
     const eth = result.ethereum?.usd ?? 0;
@@ -434,7 +480,8 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
             accept: "application/json",
             "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
           }
-        }
+        },
+        true
       );
       const btc = alt.BTC?.USD ?? 0;
       const eth = alt.ETH?.USD ?? 0;
@@ -456,13 +503,13 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
               accept: "application/json",
               "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
             }
-          }),
+          }, true),
           fetchJson<CoinbasePriceResponse>("https://api.coinbase.com/v2/prices/ETH-USD/spot", {
             headers: {
               accept: "application/json",
               "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
             }
-          })
+          }, true)
         ]);
         const btc = Number.parseFloat(btcSpot.data?.amount ?? "");
         const eth = Number.parseFloat(ethSpot.data?.amount ?? "");
@@ -576,7 +623,6 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
     });
   }
   const etherscanKey = env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
-  const bscscanKey = env.BSCSCAN_API_KEY ?? env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
   const trongridKey = env.TRONGRID_API_KEY;
 
   for (const wallet of wallets) {
@@ -602,7 +648,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
       } else {
         if (wallet.network === "bsc") {
           if (wallet.monitorUsdtBep20) {
-            events = await fetchUsdtBscTransfers(wallet.address, bscscanKey);
+            events = await fetchUsdtBscTransfers(wallet.address);
           } else {
             events = [];
           }

@@ -17,7 +17,8 @@ const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 const DEFAULT_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
 const DEFAULT_TRON_PAY_ADDRESS = "TEGVTMXvXr7e7idCCjHPMw78uZUU7QD7qY";
 const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-const BSCSCAN_BASE = "https://api.bscscan.com/api";
+const BSC_RPC_URLS = ["https://bsc-dataseed.binance.org", "https://bsc.publicnode.com"] as const;
+const ERC20_TRANSFER_TOPIC = "0xddf252ad00000000000000000000000000000000000000000000000000000000";
 
 type PaymentNetwork = "bsc" | "trc20";
 
@@ -79,57 +80,109 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
 }
 
 async function fetchBscIncomingUsdt(env: Env): Promise<PaymentTx[]> {
-  const apiKey = env.BSCSCAN_API_KEY ?? env.ETHERSCAN_API_KEY ?? "YourApiKeyToken";
   const toAddress = getAddress(getEvmPayAddress(env));
-  const url =
-    `${BSCSCAN_BASE}?module=account&action=tokentx` +
-    `&contractaddress=${encodeURIComponent(EVM_USDT_CONTRACT)}` +
-    `&address=${encodeURIComponent(toAddress)}` +
-    `&page=1&offset=100&sort=desc` +
-    `&apikey=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`BSCSCAN_STATUS_${response.status}`);
-  }
-  const payload = (await response.json()) as {
-    status?: string;
-    message?: string;
-    result?: Array<{
-      hash?: string;
-      to?: string;
-      value?: string;
-      timeStamp?: string;
-      tokenDecimal?: string;
-      contractAddress?: string;
-    }> | string;
+  const toTopic = `0x${"0".repeat(24)}${toAddress.toLowerCase().replace(/^0x/, "")}`;
+  type JsonRpcResult<T> = {
+    result?: T;
+    error?: { message?: string };
+  };
+  type RpcLog = {
+    transactionHash: string;
+    data: string;
+    blockNumber: string;
   };
 
-  if (payload.status !== "1" || !Array.isArray(payload.result)) {
-    // When no transactions exist, BscScan often returns status=0 with a message like "No transactions found".
-    return [];
-  }
+  let lastError: unknown = null;
+  for (const rpcUrl of BSC_RPC_URLS) {
+    try {
+      const latestResp = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "eth_blockNumber",
+          params: []
+        })
+      });
+      if (!latestResp.ok) {
+        throw new Error(`BSC_RPC_STATUS_${latestResp.status}`);
+      }
+      const latestPayload = (await latestResp.json()) as JsonRpcResult<string>;
+      if (!latestPayload.result) {
+        throw new Error(`BSC_RPC_BLOCKNUMBER_ERROR_${latestPayload.error?.message ?? "NO_RESULT"}`);
+      }
+      const latest = BigInt(latestPayload.result);
+      const fromBlock = latest > 7_200n ? latest - 7_200n : 0n;
 
-  const txs: PaymentTx[] = [];
-  for (const row of payload.result) {
-    if (!row?.hash || !row?.value || !row?.timeStamp) {
-      continue;
+      const logsResp = await fetch(rpcUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "eth_getLogs",
+          params: [
+            {
+              address: EVM_USDT_CONTRACT,
+              fromBlock: `0x${fromBlock.toString(16)}`,
+              toBlock: "latest",
+              topics: [ERC20_TRANSFER_TOPIC, null, toTopic]
+            }
+          ]
+        })
+      });
+      if (!logsResp.ok) {
+        throw new Error(`BSC_RPC_LOGS_STATUS_${logsResp.status}`);
+      }
+      const logsPayload = (await logsResp.json()) as JsonRpcResult<RpcLog[]>;
+      if (!Array.isArray(logsPayload.result)) {
+        throw new Error(`BSC_RPC_LOGS_ERROR_${logsPayload.error?.message ?? "NO_RESULT"}`);
+      }
+
+      const txs: PaymentTx[] = [];
+      for (const row of logsPayload.result) {
+        if (!row?.transactionHash || !row?.data || !row?.blockNumber) {
+          continue;
+        }
+
+        const blockResp = await fetch(rpcUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "eth_getBlockByNumber",
+            params: [row.blockNumber, false]
+          })
+        });
+        if (!blockResp.ok) {
+          continue;
+        }
+        const blockPayload = (await blockResp.json()) as JsonRpcResult<{ timestamp?: string }>;
+        const tsHex = blockPayload.result?.timestamp ?? "0x0";
+
+        txs.push({
+          txid: row.transactionHash,
+          amountUnits: BigInt(row.data),
+          timestampMs: Number.parseInt(tsHex, 16) * 1000
+        });
+      }
+      return txs;
+    } catch (error) {
+      lastError = error;
     }
-    if ((row.contractAddress ?? "").toLowerCase() !== EVM_USDT_CONTRACT.toLowerCase()) {
-      continue;
-    }
-    if ((row.to ?? "").toLowerCase() !== toAddress.toLowerCase()) {
-      continue;
-    }
-    const amountUnitsRaw = BigInt(row.value);
-    const tsSeconds = Number.parseInt(row.timeStamp, 10);
-    txs.push({
-      txid: row.hash,
-      amountUnits: amountUnitsRaw,
-      timestampMs: Number.isFinite(tsSeconds) ? tsSeconds * 1000 : 0
-    });
   }
-  return txs;
+  if (lastError) {
+    throw lastError;
+  }
+  return [];
 }
 
 async function fetchTrc20IncomingUsdt(env: Env): Promise<PaymentTx[]> {
