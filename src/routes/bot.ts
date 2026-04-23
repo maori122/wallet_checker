@@ -743,7 +743,7 @@ async function sendTelegramMessage(
   });
 }
 
-async function deleteTelegramMessage(token: string, chatId: number, messageId: number): Promise<void> {
+async function deleteTelegramMessage(token: string, chatId: number, messageId: number): Promise<boolean> {
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
       method: "POST",
@@ -755,17 +755,29 @@ async function deleteTelegramMessage(token: string, chatId: number, messageId: n
         message_id: messageId
       })
     });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      // eslint-disable-next-line no-console
-      console.warn("Telegram deleteMessage failed", { status: response.status, body });
-    }
+    if (response.ok) return true;
+    const body = await response.text().catch(() => "");
+    // eslint-disable-next-line no-console
+    console.warn("Telegram deleteMessage failed", { status: response.status, body, chatId, messageId });
+    return false;
   } catch (error) {
     // eslint-disable-next-line no-console
     console.warn("Telegram deleteMessage request error", {
+      chatId,
+      messageId,
       error: (error as Error)?.message ?? String(error)
     });
+    return false;
   }
+}
+
+async function deleteTelegramMessageWithRetry(token: string, chatId: number, messageId: number): Promise<void> {
+  const firstTry = await deleteTelegramMessage(token, chatId, messageId);
+  if (firstTry) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await deleteTelegramMessage(token, chatId, messageId);
 }
 
 function escapeHtml(value: string): string {
@@ -837,7 +849,7 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  await deleteTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
+  await deleteTelegramMessageWithRetry(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
 
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
     await clearBotSession(c.env, userId);
