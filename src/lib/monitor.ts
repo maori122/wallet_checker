@@ -49,7 +49,7 @@ function toFixedTrimmed(value: number, decimals = 8): string {
 }
 
 async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
-  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -59,6 +59,11 @@ async function sendTelegramMessage(env: Env, chatId: string, text: string): Prom
       text
     })
   });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    // eslint-disable-next-line no-console
+    console.error("Telegram sendMessage failed", { status: response.status, body });
+  }
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -129,21 +134,26 @@ async function fetchBtcTransfers(address: string): Promise<TransferEvent[]> {
 async function fetchEthTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type EtherscanResponse = {
     status: string;
-    result: Array<{
+    result:
+      | Array<{
       hash: string;
       from: string;
       to: string;
       value: string;
       isError: string;
-    }>;
+    }>
+      | string;
   };
   const response = await fetchJson<EtherscanResponse>(
     `${ETHERSCAN_BASE}?module=account&action=txlist&address=${encodeURIComponent(address)}&page=1&offset=30&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
+  if (response.status !== "1" || !Array.isArray(response.result)) {
+    return [];
+  }
   const normalized = address.toLowerCase();
   const items: TransferEvent[] = [];
 
-  for (const row of response.result ?? []) {
+  for (const row of response.result) {
     if (row.isError !== "0") {
       continue;
     }
@@ -172,22 +182,27 @@ async function fetchEthTransfers(address: string, apiKey: string): Promise<Trans
 async function fetchUsdtTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type EtherscanTokenResponse = {
     status: string;
-    result: Array<{
+    result:
+      | Array<{
       hash: string;
       from: string;
       to: string;
       value: string;
       tokenDecimal: string;
       contractAddress: string;
-    }>;
+    }>
+      | string;
   };
   const response = await fetchJson<EtherscanTokenResponse>(
     `${ETHERSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_ETH_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
+  if (response.status !== "1" || !Array.isArray(response.result)) {
+    return [];
+  }
   const normalized = address.toLowerCase();
   const items: TransferEvent[] = [];
 
-  for (const row of response.result ?? []) {
+  for (const row of response.result) {
     const toMatches = (row.to ?? "").toLowerCase() === normalized;
     const fromMatches = (row.from ?? "").toLowerCase() === normalized;
     if (!toMatches && !fromMatches) {
@@ -217,22 +232,27 @@ async function fetchUsdtTransfers(address: string, apiKey: string): Promise<Tran
 async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type BscscanTokenResponse = {
     status: string;
-    result: Array<{
+    result:
+      | Array<{
       hash: string;
       from: string;
       to: string;
       value: string;
       tokenDecimal: string;
       contractAddress: string;
-    }>;
+    }>
+      | string;
   };
   const response = await fetchJson<BscscanTokenResponse>(
     `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
+  if (response.status !== "1" || !Array.isArray(response.result)) {
+    return [];
+  }
   const normalized = address.toLowerCase();
   const items: TransferEvent[] = [];
 
-  for (const row of response.result ?? []) {
+  for (const row of response.result) {
     const toMatches = (row.to ?? "").toLowerCase() === normalized;
     const fromMatches = (row.from ?? "").toLowerCase() === normalized;
     if (!toMatches && !fromMatches) {
@@ -462,7 +482,14 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
           }
         }
       }
-    } catch {
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("Monitoring fetch failed", {
+        walletId: wallet.id,
+        userId: wallet.userId,
+        network: wallet.network,
+        error: (error as Error)?.message ?? String(error)
+      });
       continue;
     }
 
