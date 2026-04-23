@@ -134,6 +134,7 @@ async function fetchBtcTransfers(address: string): Promise<TransferEvent[]> {
 async function fetchEthTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type EtherscanResponse = {
     status: string;
+    message?: string;
     result:
       | Array<{
       hash: string;
@@ -148,6 +149,12 @@ async function fetchEthTransfers(address: string, apiKey: string): Promise<Trans
     `${ETHERSCAN_BASE}?module=account&action=txlist&address=${encodeURIComponent(address)}&page=1&offset=30&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
+    // eslint-disable-next-line no-console
+    console.warn("Etherscan txlist not ok", {
+      status: response.status,
+      message: response.message,
+      result: typeof response.result === "string" ? response.result : "non-array"
+    });
     return [];
   }
   const normalized = address.toLowerCase();
@@ -182,6 +189,7 @@ async function fetchEthTransfers(address: string, apiKey: string): Promise<Trans
 async function fetchUsdtTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type EtherscanTokenResponse = {
     status: string;
+    message?: string;
     result:
       | Array<{
       hash: string;
@@ -197,6 +205,12 @@ async function fetchUsdtTransfers(address: string, apiKey: string): Promise<Tran
     `${ETHERSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_ETH_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
+    // eslint-disable-next-line no-console
+    console.warn("Etherscan tokentx not ok", {
+      status: response.status,
+      message: response.message,
+      result: typeof response.result === "string" ? response.result : "non-array"
+    });
     return [];
   }
   const normalized = address.toLowerCase();
@@ -232,6 +246,7 @@ async function fetchUsdtTransfers(address: string, apiKey: string): Promise<Tran
 async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<TransferEvent[]> {
   type BscscanTokenResponse = {
     status: string;
+    message?: string;
     result:
       | Array<{
       hash: string;
@@ -247,6 +262,12 @@ async function fetchUsdtBscTransfers(address: string, apiKey: string): Promise<T
     `${BSCSCAN_BASE}?module=account&action=tokentx&contractaddress=${USDT_BSC_CONTRACT}&address=${encodeURIComponent(address)}&page=1&offset=40&sort=desc&apikey=${encodeURIComponent(apiKey)}`
   );
   if (response.status !== "1" || !Array.isArray(response.result)) {
+    // eslint-disable-next-line no-console
+    console.warn("BscScan tokentx not ok", {
+      status: response.status,
+      message: response.message,
+      result: typeof response.result === "string" ? response.result : "non-array"
+    });
     return [];
   }
   const normalized = address.toLowerCase();
