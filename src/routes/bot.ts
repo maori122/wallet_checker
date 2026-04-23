@@ -840,9 +840,6 @@ bot.post("/telegram", async (c) => {
   await deleteTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
 
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
-    if (!session) {
-      return c.json({ ok: true });
-    }
     await clearBotSession(c.env, userId);
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
