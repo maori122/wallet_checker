@@ -615,7 +615,8 @@ async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number 
 
 function formatNotification(params: {
   language: "ru" | "en";
-  label: string | null;
+  senderLabel: string | null;
+  recipientLabel: string | null;
   from: string | null;
   toAddress: string;
   amount: number;
@@ -626,15 +627,27 @@ function formatNotification(params: {
   const showUsdEstimate = params.usdEstimate !== null && params.asset !== "USDT";
   const escapedSenderAddress = escapeHtml(senderAddress);
   const escapedRecipientAddress = escapeHtml(params.toAddress);
-  const escapedLabel = params.label ? escapeHtml(params.label) : null;
+  const escapedSenderLabel = params.senderLabel ? escapeHtml(params.senderLabel) : null;
+  const escapedRecipientLabel = params.recipientLabel ? escapeHtml(params.recipientLabel) : null;
+  const senderTitle = escapedSenderLabel
+    ? `Адрес отправителя (${escapedSenderLabel})`
+    : "Адрес отправителя";
+  const recipientTitle = escapedRecipientLabel
+    ? `Получатель (${escapedRecipientLabel})`
+    : "Получатель";
+  const senderTitleEn = escapedSenderLabel
+    ? `Sender address (${escapedSenderLabel})`
+    : "Sender address";
+  const recipientTitleEn = escapedRecipientLabel
+    ? `Recipient (${escapedRecipientLabel})`
+    : "Recipient";
 
   if (params.language === "ru") {
     return [
       `📥 <b>Входящее пополнение</b>`,
       `💰 <b>Сумма:</b> ${toFixedTrimmed(params.amount)} ${params.asset}`,
-      escapedLabel ? `👤 <b>Отправитель:</b> ${escapedLabel}` : null,
-      `🔗 <b>Адрес отправителя:</b>\n<blockquote>${escapedSenderAddress}</blockquote>`,
-      `📬 <b>Получатель:</b>\n<blockquote>${escapedRecipientAddress}</blockquote>`,
+      `🔗 <b>${senderTitle}:</b>\n<blockquote>${escapedSenderAddress}</blockquote>`,
+      `📬 <b>${recipientTitle}:</b>\n<blockquote>${escapedRecipientAddress}</blockquote>`,
       showUsdEstimate ? `💵 <b>Оценка:</b> ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
     ]
       .filter(Boolean)
@@ -644,9 +657,8 @@ function formatNotification(params: {
   return [
     `📥 <b>Incoming transfer</b>`,
     `💰 <b>Amount:</b> ${toFixedTrimmed(params.amount)} ${params.asset}`,
-    escapedLabel ? `👤 <b>Sender:</b> ${escapedLabel}` : null,
-    `🔗 <b>Sender address:</b>\n<blockquote>${escapedSenderAddress}</blockquote>`,
-    `📬 <b>Recipient:</b>\n<blockquote>${escapedRecipientAddress}</blockquote>`,
+    `🔗 <b>${senderTitleEn}:</b>\n<blockquote>${escapedSenderAddress}</blockquote>`,
+    `📬 <b>${recipientTitleEn}:</b>\n<blockquote>${escapedRecipientAddress}</blockquote>`,
     showUsdEstimate ? `💵 <b>Estimate:</b> ≈ $${toFixedTrimmed(params.usdEstimate ?? 0, 2)}` : null
   ]
     .filter(Boolean)
@@ -778,9 +790,15 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
           if (!reserved) {
             continue;
           }
-          const label = normalizedFrom
+          const senderLabel = normalizedFrom
             ? await resolveContactLabel(env, wallet.userId, event.network, normalizedFrom)
             : null;
+          const recipientLabel = await resolveContactLabel(
+            env,
+            wallet.userId,
+            event.network,
+            monitoredWalletAddress
+          );
 
           const usdRate =
             event.asset === "BTC" ? prices.btc : event.asset === "ETH" ? prices.eth : prices.usdt;
@@ -791,7 +809,8 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
 
           const text = formatNotification({
             language: settings.language,
-            label,
+            senderLabel,
+            recipientLabel,
             from: normalizedFrom ?? event.from,
             toAddress: wallet.address,
             amount: event.amount,
