@@ -125,7 +125,6 @@ const I18N = {
     transferRateDone: "Оценка сохранена.",
     walletActionsOnly: "Эта кнопка работает только в разделе «Отслеживаемые».",
     pagedListStale: "Список устарел. Откройте его снова кнопкой «Список».",
-    pagedListPage: "Страница {current} из {total}",
     cabinetTitle: "Личный кабинет",
     cabinetPlan: "Тариф",
     cabinetStatus: "Статус",
@@ -264,7 +263,6 @@ const I18N = {
     transferRateDone: "Rating saved.",
     walletActionsOnly: "This action works only in the wallets section.",
     pagedListStale: "The list is outdated. Open it again with the List button.",
-    pagedListPage: "Page {current} of {total}",
     cabinetTitle: "Account",
     cabinetPlan: "Plan",
     cabinetStatus: "Status",
@@ -509,21 +507,16 @@ function isSessionValidForPickPagedList(session: BotSession | null, kind: PagedL
   return true;
 }
 
-function formatListPageLabel(language: Language, current1Based: number, total: number): string {
-  return t(language, "pagedListPage").replace("{current}", String(current1Based)).replace("{total}", String(total));
-}
-
 function buildListPageBody(
   title: string,
   lineChunk: string[],
   currentPage0: number,
-  totalPages: number,
-  language: Language
+  totalPages: number
 ): string {
   if (totalPages <= 1) {
     return `${title}\n${lineChunk.join("\n")}`;
   }
-  return `${title}\n${lineChunk.join("\n")}\n\n${formatListPageLabel(language, currentPage0 + 1, totalPages)}`;
+  return `${title}\n${lineChunk.join("\n")}\n\n${String(currentPage0 + 1)}`;
 }
 
 function buildListPaginationInline(
@@ -534,7 +527,7 @@ function buildListPaginationInline(
 ): InlineReplyMarkup {
   const prevPage = currentPage0 <= 0 ? 0 : currentPage0 - 1;
   const nextPage = currentPage0 >= totalPages - 1 ? totalPages - 1 : currentPage0 + 1;
-  const label = formatListPageLabel(language, currentPage0 + 1, totalPages);
+  const label = String(currentPage0 + 1);
   const k = `p:${kind}:`;
   if (totalPages <= 1) {
     return { inline_keyboard: [] };
@@ -565,8 +558,8 @@ async function loadPagedListContent(
         return null;
       }
       const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${escapeHtml(label)}\n<code>${escapeHtml(item.address)}</code>`;
+        const label = item.label?.trim() ? ` (${escapeHtml(item.label.trim())})` : "";
+        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${label}\n<blockquote>${escapeHtml(item.address)}</blockquote>`;
       });
       return { title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`, lines, parseMode: "HTML" };
     }
@@ -577,7 +570,9 @@ async function loadPagedListContent(
       }
       const lines = contacts.map(
         (item, index) =>
-          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<code>${escapeHtml(item.address)}</code>`
+          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<blockquote>${escapeHtml(
+            item.address
+          )}</blockquote>`
       );
       return { title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`, lines, parseMode: "HTML" };
     }
@@ -590,10 +585,12 @@ async function loadPagedListContent(
         return null;
       }
       const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-        return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+        const label = item.label?.trim() ? ` (${escapeHtml(item.label.trim())})` : "";
+        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${label}\n<blockquote>${escapeHtml(
+          maskAddress(item.address)
+        )}</blockquote>`;
       });
-      return { title: t(language, "walletBalancesPick"), lines };
+      return { title: t(language, "walletBalancesPick"), lines, parseMode: "HTML" };
     }
     case "h": {
       const history = await listTransferHistory(env, userId, 10);
@@ -641,10 +638,12 @@ async function loadPagedListContent(
         return null;
       }
       const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-        return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+        const label = item.label?.trim() ? ` (${escapeHtml(item.label.trim())})` : "";
+        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${label}\n<blockquote>${escapeHtml(
+          maskAddress(item.address)
+        )}</blockquote>`;
       });
-      return { title: t(language, "walletDeletePick"), lines };
+      return { title: t(language, "walletDeletePick"), lines, parseMode: "HTML" };
     }
     case "dc": {
       if (!isSessionValidForPickPagedList(session, "dc")) {
@@ -655,9 +654,12 @@ async function loadPagedListContent(
         return null;
       }
       const lines = contacts.map(
-        (item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`
+        (item, index) =>
+          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<blockquote>${escapeHtml(
+            maskAddress(item.address)
+          )}</blockquote>`
       );
-      return { title: t(language, "contactDeletePick"), lines };
+      return { title: t(language, "contactDeletePick"), lines, parseMode: "HTML" };
     }
     case "ar": {
       if (!isAdmin) {
@@ -770,7 +772,7 @@ async function sendPagedList(params: {
     return;
   }
   const firstChunk = pages[0] ?? [];
-  const body0 = buildListPageBody(content.title, firstChunk, 0, totalPages, params.language);
+  const body0 = buildListPageBody(content.title, firstChunk, 0, totalPages);
   if (totalPages === 1) {
     await sendTelegramMessage(
       params.token,
@@ -1281,7 +1283,7 @@ bot.post("/telegram", async (c) => {
       const wantPage = Math.max(0, Number.parseInt(pageArg, 10) || 0);
       const p = Math.min(wantPage, Math.max(0, total - 1));
       const chunk = pages[p] ?? [];
-      const body = buildListPageBody(content.title, chunk, p, total, language);
+      const body = buildListPageBody(content.title, chunk, p, total);
       const inline = buildListPaginationInline(k, p, total, language);
       const msgId = cbMessage.message_id;
       if (typeof msgId === "number") {
