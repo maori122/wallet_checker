@@ -778,7 +778,7 @@ async function sendPagedList(params: {
     return;
   }
   const inline = buildListPaginationInline(params.kind, 0, totalPages, params.language);
-  await sendTelegramMessage(
+  const listRes = await sendTelegramMessage(
     params.token,
     params.chatId,
     body0,
@@ -786,6 +786,9 @@ async function sendPagedList(params: {
     content.parseMode,
     inline
   );
+  if (listRes.ok) {
+    await resendChatReplyKeyboard(params.token, params.chatId, params.replyKeyboard);
+  }
 }
 
 async function showWalletsList(
@@ -1031,6 +1034,33 @@ function adminKeyboard(language: Language): ReplyMarkup {
     ],
     resize_keyboard: true
   };
+}
+
+/**
+ * Сообщение только с inline не восстанавливает обычную клавиатуру (Главное меню и т.д.).
+ * Отдельное короткое сообщение с reply_markup — клавиатура снова внизу. Не меняет lastUiMessageByChat
+ * (удаляется при смене UI по-прежнему основное сообщение со списком).
+ */
+async function resendChatReplyKeyboard(token: string, chatId: number, replyMarkup: ReplyMarkup): Promise<void> {
+  const trySend = async (text: string) =>
+    fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        reply_markup: replyMarkup,
+        disable_notification: true
+      })
+    });
+  let res = await trySend("\u200b");
+  if (!res.ok) {
+    res = await trySend(" ");
+  }
+  if (!res.ok) {
+    // eslint-disable-next-line no-console
+    console.warn("resendChatReplyKeyboard failed", { status: res.status, body: await res.text().catch(() => ""), chatId });
+  }
 }
 
 async function sendTelegramMessage(
