@@ -41,6 +41,10 @@ type Variables = {
 
 type Language = "ru" | "en";
 
+type InlineReplyMarkup = {
+  inline_keyboard: { text: string; callback_data: string }[][];
+};
+
 type TelegramUpdate = {
   message?: {
     message_id: number;
@@ -55,6 +59,12 @@ type TelegramUpdate = {
       first_name?: string;
       last_name?: string;
     };
+  };
+  callback_query?: {
+    id: string;
+    from: { id: number; username?: string; first_name?: string; last_name?: string };
+    message?: { message_id: number; chat: { id: number; type: string } };
+    data?: string;
   };
 };
 
@@ -114,6 +124,8 @@ const I18N = {
     transferRateAskVote: "Поставьте оценку кошельку контрагента.",
     transferRateDone: "Оценка сохранена.",
     walletActionsOnly: "Эта кнопка работает только в разделе «Отслеживаемые».",
+    pagedListStale: "Список устарел. Откройте его снова кнопкой «Список».",
+    pagedListPage: "Страница {current} из {total}",
     cabinetTitle: "Личный кабинет",
     cabinetPlan: "Тариф",
     cabinetStatus: "Статус",
@@ -251,6 +263,8 @@ const I18N = {
     transferRateAskVote: "Rate the counterparty wallet.",
     transferRateDone: "Rating saved.",
     walletActionsOnly: "This action works only in the wallets section.",
+    pagedListStale: "The list is outdated. Open it again with the List button.",
+    pagedListPage: "Page {current} of {total}",
     cabinetTitle: "Account",
     cabinetPlan: "Plan",
     cabinetStatus: "Status",
@@ -445,6 +459,8 @@ function toUserLabel(params: {
   return params.userId;
 }
 
+type PagedListKind = "w" | "cl" | "b" | "h" | "rt" | "dw" | "dc" | "ar" | "al" | "as";
+
 function paginateLines(lines: string[], pageSize = 8): string[][] {
   const pages: string[][] = [];
   for (let i = 0; i < lines.length; i += pageSize) {
@@ -453,32 +469,327 @@ function paginateLines(lines: string[], pageSize = 8): string[][] {
   return pages;
 }
 
+function pagedListEmptyText(language: Language, kind: PagedListKind): string {
+  switch (kind) {
+    case "w":
+    case "b":
+      return t(language, "walletListEmpty");
+    case "cl":
+      return t(language, "contactsListEmpty");
+    case "h":
+      return t(language, "transferHistoryEmpty");
+    case "rt":
+      return t(language, "transferRateNoSender");
+    case "dw":
+      return t(language, "walletDeleteEmpty");
+    case "dc":
+      return t(language, "contactsDeleteEmpty");
+    case "ar":
+      return t(language, "adminReputationEmpty");
+    case "al":
+      return t(language, "adminLinksEmpty");
+    case "as":
+      return t(language, "adminStopEmpty");
+  }
+}
+
+function isSessionValidForPickPagedList(session: BotSession | null, kind: PagedListKind): boolean {
+  if (kind === "b") {
+    return session?.flow === "wallet:balance:pick" && ((session.payload?.ids as string[] | undefined) ?? []).length > 0;
+  }
+  if (kind === "rt") {
+    return session?.flow === "transfer:rate:pick" && ((session.payload?.ids as string[] | undefined) ?? []).length > 0;
+  }
+  if (kind === "dw") {
+    return session?.flow === "wallet:delete:pick" && ((session.payload?.ids as string[] | undefined) ?? []).length > 0;
+  }
+  if (kind === "dc") {
+    return session?.flow === "contact:delete:pick" && ((session.payload?.ids as string[] | undefined) ?? []).length > 0;
+  }
+  return true;
+}
+
+function formatListPageLabel(language: Language, current1Based: number, total: number): string {
+  return t(language, "pagedListPage").replace("{current}", String(current1Based)).replace("{total}", String(total));
+}
+
+function buildListPageBody(
+  title: string,
+  lineChunk: string[],
+  currentPage0: number,
+  totalPages: number,
+  language: Language
+): string {
+  if (totalPages <= 1) {
+    return `${title}\n${lineChunk.join("\n")}`;
+  }
+  return `${title}\n${lineChunk.join("\n")}\n\n${formatListPageLabel(language, currentPage0 + 1, totalPages)}`;
+}
+
+function buildListPaginationInline(
+  kind: PagedListKind,
+  currentPage0: number,
+  totalPages: number,
+  language: Language
+): InlineReplyMarkup {
+  const prevPage = currentPage0 <= 0 ? 0 : currentPage0 - 1;
+  const nextPage = currentPage0 >= totalPages - 1 ? totalPages - 1 : currentPage0 + 1;
+  const label = formatListPageLabel(language, currentPage0 + 1, totalPages);
+  const k = `p:${kind}:`;
+  if (totalPages <= 1) {
+    return { inline_keyboard: [] };
+  }
+  return {
+    inline_keyboard: [
+      [
+        { text: language === "ru" ? "⬅️ Пред." : "⬅️ Prev", callback_data: `${k}${prevPage}` },
+        { text: label, callback_data: "p:noop" },
+        { text: language === "ru" ? "След. ➡️" : "Next ➡️", callback_data: `${k}${nextPage}` }
+      ]
+    ]
+  };
+}
+
+async function loadPagedListContent(
+  env: Env,
+  userId: string,
+  language: Language,
+  isAdmin: boolean,
+  session: BotSession | null,
+  kind: PagedListKind
+): Promise<{ title: string; lines: string[]; parseMode?: "HTML" | "MarkdownV2" } | null> {
+  switch (kind) {
+    case "w": {
+      const wallets = await listWallets(env, userId);
+      if (wallets.length === 0) {
+        return null;
+      }
+      const lines = wallets.map((item, index) => {
+        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
+        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${escapeHtml(label)}\n<code>${escapeHtml(item.address)}</code>`;
+      });
+      return { title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`, lines, parseMode: "HTML" };
+    }
+    case "cl": {
+      const contacts = await listContacts(env, userId);
+      if (contacts.length === 0) {
+        return null;
+      }
+      const lines = contacts.map(
+        (item, index) =>
+          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<code>${escapeHtml(item.address)}</code>`
+      );
+      return { title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`, lines, parseMode: "HTML" };
+    }
+    case "b": {
+      if (!isSessionValidForPickPagedList(session, "b")) {
+        return null;
+      }
+      const wallets = await listWallets(env, userId);
+      if (wallets.length === 0) {
+        return null;
+      }
+      const lines = wallets.map((item, index) => {
+        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
+        return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+      });
+      return { title: t(language, "walletBalancesPick"), lines };
+    }
+    case "h": {
+      const history = await listTransferHistory(env, userId, 10);
+      if (history.length === 0) {
+        return null;
+      }
+      const lines = await Promise.all(
+        history.map(async (item, index) => {
+          let ratingSuffix = "";
+          if (item.counterpartyAddress) {
+            const rep = await getWalletReputationByAddress(env, item.network, item.counterpartyAddress);
+            if (rep) {
+              ratingSuffix = ` · ⭐ ${rep.score}`;
+            }
+          }
+          const directionMark = item.direction === "incoming" ? "⬅" : "➡";
+          return `${index + 1}. ${directionMark} [${formatNetwork(item.network)}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
+        })
+      );
+      return { title: `${t(language, "transferHistoryTitle")}:`, lines };
+    }
+    case "rt": {
+      if (!isSessionValidForPickPagedList(session, "rt")) {
+        return null;
+      }
+      const history = await listTransferHistory(env, userId, 20);
+      const rateable = history.filter((item) => Boolean(item.counterpartyAddress));
+      if (rateable.length === 0) {
+        return null;
+      }
+      const lines = rateable.map(
+        (item, index) =>
+          `${index + 1}. [${formatNetwork(item.network)}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(
+            item.counterpartyAddress ?? ""
+          )}`
+      );
+      return { title: t(language, "transferRatePick"), lines };
+    }
+    case "dw": {
+      if (!isSessionValidForPickPagedList(session, "dw")) {
+        return null;
+      }
+      const wallets = await listWallets(env, userId);
+      if (wallets.length === 0) {
+        return null;
+      }
+      const lines = wallets.map((item, index) => {
+        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
+        return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
+      });
+      return { title: t(language, "walletDeletePick"), lines };
+    }
+    case "dc": {
+      if (!isSessionValidForPickPagedList(session, "dc")) {
+        return null;
+      }
+      const contacts = await listContacts(env, userId);
+      if (contacts.length === 0) {
+        return null;
+      }
+      const lines = contacts.map(
+        (item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`
+      );
+      return { title: t(language, "contactDeletePick"), lines };
+    }
+    case "ar": {
+      if (!isAdmin) {
+        return null;
+      }
+      const top = await listTopWalletReputations(env, 20);
+      if (top.length === 0) {
+        return null;
+      }
+      const lines = top.map(
+        (item, index) =>
+          `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)} — ${item.score} (👍 ${item.likesCount} / 👎 ${
+            item.dislikesCount
+          })`
+      );
+      return { title: `${t(language, "adminReputationTitle")}:`, lines };
+    }
+    case "al": {
+      if (!isAdmin) {
+        return null;
+      }
+      const entries = await listLinkAuditEntries(env, 20);
+      if (entries.length === 0) {
+        return null;
+      }
+      const lines = entries.map(
+        (item, index) =>
+          `${index + 1}. ${toUserLabel({
+            userId: item.actorUserId,
+            username: item.actorUsername,
+            displayName: item.actorDisplayName
+          })} · ${item.entityType} · [${formatNetwork(item.network)}] ${maskAddress(item.address)}${
+            item.label ? ` (${item.label})` : ""
+          }`
+      );
+      return { title: `${t(language, "adminLinksTitle")}:`, lines };
+    }
+    case "as": {
+      if (!isAdmin) {
+        return null;
+      }
+      const stopped = await listStoppedWallets(env);
+      if (stopped.length === 0) {
+        return null;
+      }
+      const lines = stopped.map(
+        (item, index) =>
+          `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)} by ${toUserLabel({
+            userId: item.addedByUserId,
+            username: item.addedByUsername,
+            displayName: item.addedByDisplayName
+          })}`
+      );
+      return { title: `${t(language, "adminStopListTitle")}:`, lines };
+    }
+    default:
+      return null;
+  }
+}
+
 async function sendPagedList(params: {
+  env: Env;
   token: string;
   chatId: number;
+  userId: string;
   language: Language;
-  title: string;
-  lines: string[];
-  replyMarkup?: ReplyMarkup;
+  isAdmin: boolean;
+  session: BotSession | null;
+  kind: PagedListKind;
+  replyKeyboard: ReplyMarkup;
   pageSize?: number;
-  parseMode?: "HTML" | "MarkdownV2";
 }): Promise<void> {
-  const pages = paginateLines(params.lines, params.pageSize ?? 8);
-  for (let i = 0; i < pages.length; i += 1) {
-    const pageLabel =
-      pages.length > 1
-        ? params.language === "ru"
-          ? `\n\nСтраница ${i + 1}/${pages.length}`
-          : `\n\nPage ${i + 1}/${pages.length}`
-        : "";
+  if ((params.kind === "ar" || params.kind === "al" || params.kind === "as") && !params.isAdmin) {
     await sendTelegramMessage(
       params.token,
       params.chatId,
-      `${params.title}\n${pages[i].join("\n")}${pageLabel}`,
-      params.replyMarkup,
-      params.parseMode
+      t(params.language, "adminOnly"),
+      adminKeyboard(params.language)
     );
+    return;
   }
+
+  const pageSize = params.pageSize ?? 8;
+  const content = await loadPagedListContent(
+    params.env,
+    params.userId,
+    params.language,
+    params.isAdmin,
+    params.session,
+    params.kind
+  );
+  if (!content) {
+    await sendTelegramMessage(
+      params.token,
+      params.chatId,
+      pagedListEmptyText(params.language, params.kind),
+      params.replyKeyboard
+    );
+    return;
+  }
+  const pages = paginateLines(content.lines, pageSize);
+  const totalPages = pages.length;
+  if (totalPages === 0) {
+    await sendTelegramMessage(
+      params.token,
+      params.chatId,
+      pagedListEmptyText(params.language, params.kind),
+      params.replyKeyboard
+    );
+    return;
+  }
+  const firstChunk = pages[0] ?? [];
+  const body0 = buildListPageBody(content.title, firstChunk, 0, totalPages, params.language);
+  if (totalPages === 1) {
+    await sendTelegramMessage(
+      params.token,
+      params.chatId,
+      body0,
+      params.replyKeyboard,
+      content.parseMode
+    );
+    return;
+  }
+  const inline = buildListPaginationInline(params.kind, 0, totalPages, params.language);
+  await sendTelegramMessage(
+    params.token,
+    params.chatId,
+    body0,
+    undefined,
+    content.parseMode,
+    inline
+  );
 }
 
 async function showWalletsList(
@@ -486,25 +797,20 @@ async function showWalletsList(
   chatId: number,
   userId: string,
   language: Language,
+  isAdmin: boolean,
+  session: BotSession | null,
   replyMarkup: ReplyMarkup
 ): Promise<void> {
-  const wallets = await listWallets(env, userId);
-  if (wallets.length === 0) {
-    await sendTelegramMessage(env.TELEGRAM_BOT_TOKEN, chatId, t(language, "walletListEmpty"), replyMarkup);
-    return;
-  }
-  const lines = wallets.map((item, index) => {
-    const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-    return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${escapeHtml(label)}\n<code>${escapeHtml(item.address)}</code>`;
-  });
   await sendPagedList({
+    env,
     token: env.TELEGRAM_BOT_TOKEN,
     chatId,
+    userId,
     language,
-    title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`,
-    lines,
-    replyMarkup,
-    parseMode: "HTML"
+    isAdmin,
+    session,
+    kind: "w",
+    replyKeyboard: replyMarkup
   });
 }
 
@@ -736,9 +1042,10 @@ async function sendTelegramMessage(
   chatId: number,
   text: string,
   replyMarkup?: ReplyMarkup,
-  parseMode?: "HTML" | "MarkdownV2"
+  parseMode?: "HTML" | "MarkdownV2",
+  inlineKeyboard?: InlineReplyMarkup
 ): Promise<Response> {
-  if (replyMarkup) {
+  if (replyMarkup || inlineKeyboard) {
     const previousUiMessageId = lastUiMessageByChat.get(chatId);
     if (previousUiMessageId) {
       await deleteTelegramMessageWithRetry(token, chatId, previousUiMessageId);
@@ -749,7 +1056,9 @@ async function sendTelegramMessage(
     chat_id: chatId,
     text
   };
-  if (replyMarkup) {
+  if (inlineKeyboard) {
+    payload.reply_markup = inlineKeyboard;
+  } else if (replyMarkup) {
     payload.reply_markup = replyMarkup;
   }
   if (parseMode) {
@@ -764,7 +1073,7 @@ async function sendTelegramMessage(
     body: JSON.stringify(payload)
   });
 
-  if (replyMarkup && response.ok) {
+  if ((replyMarkup || inlineKeyboard) && response.ok) {
     try {
       const data = (await response.clone().json()) as { result?: { message_id?: number } };
       const sentMessageId = data.result?.message_id;
@@ -777,6 +1086,51 @@ async function sendTelegramMessage(
   }
 
   return response;
+}
+
+async function answerCallbackQuery(
+  token: string,
+  callbackId: string,
+  options?: { text?: string; showAlert?: boolean }
+): Promise<void> {
+  const payload: Record<string, unknown> = { callback_query_id: callbackId };
+  if (options?.text) {
+    payload.text = options.text;
+    payload.show_alert = Boolean(options.showAlert);
+  }
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch {
+    // ignore
+  }
+}
+
+async function editTelegramMessage(
+  token: string,
+  chatId: number,
+  messageId: number,
+  text: string,
+  inlineKeyboard: InlineReplyMarkup,
+  parseMode?: "HTML" | "MarkdownV2"
+): Promise<Response> {
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    reply_markup: inlineKeyboard
+  };
+  if (parseMode) {
+    payload.parse_mode = parseMode;
+  }
+  return fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 }
 
 async function deleteTelegramMessage(token: string, chatId: number, messageId: number): Promise<boolean> {
@@ -877,6 +1231,72 @@ bot.post("/telegram", async (c) => {
   }
 
   const update = (await c.req.json()) as TelegramUpdate;
+  if (update.callback_query?.from && update.callback_query.message?.chat) {
+    const cq = update.callback_query;
+    const cbMessage = cq.message;
+    if (!cbMessage) {
+      return c.json({ ok: true });
+    }
+    if (cbMessage.chat.type !== "private") {
+      return c.json({ ok: true });
+    }
+    const token = c.env.TELEGRAM_BOT_TOKEN;
+    const userId = String(cq.from.id);
+    const chatId = cbMessage.chat.id;
+    const data = cq.data ?? "";
+    if (data === "p:noop") {
+      await answerCallbackQuery(token, cq.id);
+      return c.json({ ok: true });
+    }
+    const pageMatch = data.match(/^p:([^:]+):(\d+)$/);
+    if (pageMatch) {
+      const kind = pageMatch[1];
+      const pageArg = pageMatch[2] ?? "0";
+      const ALL_KINDS: PagedListKind[] = ["w", "cl", "b", "h", "rt", "dw", "dc", "ar", "al", "as"];
+      if (!ALL_KINDS.includes(kind as PagedListKind)) {
+        await answerCallbackQuery(token, cq.id);
+        return c.json({ ok: true });
+      }
+      const k = kind as PagedListKind;
+      const isAdmin = isAdminUser(c.env, userId);
+      const settings = await getSettings(c.env, userId);
+      const language = settings.language;
+      const session = await getBotSession(c.env, userId);
+      if ((k === "ar" || k === "al" || k === "as") && !isAdmin) {
+        await answerCallbackQuery(token, cq.id, { text: t(language, "adminOnly"), showAlert: true });
+        return c.json({ ok: true });
+      }
+      if (["b", "rt", "dw", "dc"].includes(k) && !isSessionValidForPickPagedList(session, k)) {
+        await answerCallbackQuery(token, cq.id, { text: t(language, "pagedListStale"), showAlert: true });
+        return c.json({ ok: true });
+      }
+      const content = await loadPagedListContent(c.env, userId, language, isAdmin, session, k);
+      if (!content) {
+        await answerCallbackQuery(token, cq.id, { text: t(language, "pagedListStale"), showAlert: true });
+        return c.json({ ok: true });
+      }
+      const pageSize = 8;
+      const pages = paginateLines(content.lines, pageSize);
+      const total = pages.length;
+      const wantPage = Math.max(0, Number.parseInt(pageArg, 10) || 0);
+      const p = Math.min(wantPage, Math.max(0, total - 1));
+      const chunk = pages[p] ?? [];
+      const body = buildListPageBody(content.title, chunk, p, total, language);
+      const inline = buildListPaginationInline(k, p, total, language);
+      const msgId = cbMessage.message_id;
+      if (typeof msgId === "number") {
+        const res = await editTelegramMessage(token, chatId, msgId, body, inline, content.parseMode);
+        if (!res.ok) {
+          await sendTelegramMessage(token, chatId, body, undefined, content.parseMode, inline);
+        }
+      }
+      await answerCallbackQuery(token, cq.id);
+      return c.json({ ok: true });
+    }
+    await answerCallbackQuery(token, cq.id);
+    return c.json({ ok: true });
+  }
+
   const message = update.message;
   if (!message?.from?.id || message.chat.type !== "private") {
     return c.json({ ok: true });
@@ -1491,26 +1911,16 @@ bot.post("/telegram", async (c) => {
     const commandLower = trimmed.toLowerCase();
 
     if (commandLower === "list") {
-      const stopped = await listStoppedWallets(c.env);
-      if (stopped.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminStopEmpty"), adminKeyboard(language));
-        return c.json({ ok: true });
-      }
-      const lines = stopped.map(
-        (item, index) =>
-          `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)} by ${toUserLabel({
-            userId: item.addedByUserId,
-            username: item.addedByUsername,
-            displayName: item.addedByDisplayName
-          })}`
-      );
       await sendPagedList({
+        env: c.env,
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
+        userId,
         language,
-        title: `${t(language, "adminStopListTitle")}:`,
-        lines,
-        replyMarkup: adminKeyboard(language)
+        isAdmin: true,
+        session,
+        kind: "as",
+        replyKeyboard: adminKeyboard(language)
       });
       return c.json({ ok: true });
     }
@@ -1617,7 +2027,16 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnWallets")) {
     await setBotSession(c.env, userId, { flow: "section:wallets" });
-    await showWalletsList(c.env, message.chat.id, userId, language, sectionKeyboard(language));
+    session = { flow: "section:wallets" };
+    await showWalletsList(
+      c.env,
+      message.chat.id,
+      userId,
+      language,
+      isAdmin,
+      session,
+      sectionKeyboard(language)
+    );
     return c.json({ ok: true });
   }
 
@@ -1735,27 +2154,28 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnList")) {
     const section = currentSection(session);
     if (section === "wallets") {
-      await showWalletsList(c.env, message.chat.id, userId, language, sectionKeyboard(language));
+      await showWalletsList(
+        c.env,
+        message.chat.id,
+        userId,
+        language,
+        isAdmin,
+        session,
+        sectionKeyboard(language)
+      );
       return c.json({ ok: true });
     }
     if (section === "contacts") {
-      const contacts = await listContacts(c.env, userId);
-      if (contacts.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsListEmpty"), sectionKeyboard(language, "contacts"));
-        return c.json({ ok: true });
-      }
-      const lines = contacts.map(
-        (item, index) =>
-          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<code>${escapeHtml(item.address)}</code>`
-      );
       await sendPagedList({
+        env: c.env,
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
+        userId,
         language,
-        title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
-        lines,
-        replyMarkup: sectionKeyboard(language, "contacts"),
-        parseMode: "HTML"
+        isAdmin,
+        session,
+        kind: "cl",
+        replyKeyboard: sectionKeyboard(language, "contacts")
       });
       return c.json({ ok: true });
     }
@@ -1781,18 +2201,21 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletListEmpty"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    const lines = wallets.map((item, index) => {
-      const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-      return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
-    });
-    await setBotSession(c.env, userId, { flow: "wallet:balance:pick", payload: { ids: wallets.map((item) => item.id) } });
+    const sessionBalance: BotSession = {
+      flow: "wallet:balance:pick",
+      payload: { ids: wallets.map((item) => item.id) }
+    };
+    await setBotSession(c.env, userId, sessionBalance);
     await sendPagedList({
+      env: c.env,
       token: c.env.TELEGRAM_BOT_TOKEN,
       chatId: message.chat.id,
+      userId,
       language,
-      title: t(language, "walletBalancesPick"),
-      lines,
-      replyMarkup: sectionKeyboard(language)
+      isAdmin,
+      session: sessionBalance,
+      kind: "b",
+      replyKeyboard: sectionKeyboard(language)
     });
     return c.json({ ok: true });
   }
@@ -1804,31 +2227,16 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
-    const history = await listTransferHistory(c.env, userId, 10);
-    if (history.length === 0) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferHistoryEmpty"), sectionKeyboard(language));
-      return c.json({ ok: true });
-    }
-    const lines = await Promise.all(
-      history.map(async (item, index) => {
-        let ratingSuffix = "";
-        if (item.counterpartyAddress) {
-          const rep = await getWalletReputationByAddress(c.env, item.network, item.counterpartyAddress);
-          if (rep) {
-            ratingSuffix = ` · ⭐ ${rep.score}`;
-          }
-        }
-        const directionMark = item.direction === "incoming" ? "⬅" : "➡";
-        return `${index + 1}. ${directionMark} [${formatNetwork(item.network)}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)}${ratingSuffix}`;
-      })
-    );
     await sendPagedList({
+      env: c.env,
       token: c.env.TELEGRAM_BOT_TOKEN,
       chatId: message.chat.id,
+      userId,
       language,
-      title: `${t(language, "transferHistoryTitle")}:`,
-      lines,
-      replyMarkup: sectionKeyboard(language)
+      isAdmin,
+      session,
+      kind: "h",
+      replyKeyboard: sectionKeyboard(language)
     });
     return c.json({ ok: true });
   }
@@ -1846,18 +2254,21 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "transferRateNoSender"), sectionKeyboard(language));
       return c.json({ ok: true });
     }
-    const lines = rateable.map(
-      (item, index) =>
-        `${index + 1}. [${formatNetwork(item.network)}] ${item.amount} ${item.asset} · ${maskTxid(item.txid)} · ${maskAddress(item.counterpartyAddress ?? "")}`
-    );
-    await setBotSession(c.env, userId, { flow: "transfer:rate:pick", payload: { ids: rateable.map((item) => item.id) } });
+    const sessionRate: BotSession = {
+      flow: "transfer:rate:pick",
+      payload: { ids: rateable.map((item) => item.id) }
+    };
+    await setBotSession(c.env, userId, sessionRate);
     await sendPagedList({
+      env: c.env,
       token: c.env.TELEGRAM_BOT_TOKEN,
       chatId: message.chat.id,
+      userId,
       language,
-      title: t(language, "transferRatePick"),
-      lines,
-      replyMarkup: sectionKeyboard(language)
+      isAdmin,
+      session: sessionRate,
+      kind: "rt",
+      replyKeyboard: sectionKeyboard(language)
     });
     return c.json({ ok: true });
   }
@@ -1905,18 +2316,18 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletDeleteEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-        return `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)}${label}`;
-      });
-      await setBotSession(c.env, userId, { flow: "wallet:delete:pick", payload: { ids: wallets.map((item) => item.id) } });
+      const sessionDel: BotSession = { flow: "wallet:delete:pick", payload: { ids: wallets.map((item) => item.id) } };
+      await setBotSession(c.env, userId, sessionDel);
       await sendPagedList({
+        env: c.env,
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
+        userId,
         language,
-        title: t(language, "walletDeletePick"),
-        lines,
-        replyMarkup: sectionKeyboard(language)
+        isAdmin,
+        session: sessionDel,
+        kind: "dw",
+        replyKeyboard: sectionKeyboard(language)
       });
       return c.json({ ok: true });
     }
@@ -1926,15 +2337,18 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsDeleteEmpty"), sectionKeyboard(language, "contacts"));
         return c.json({ ok: true });
       }
-      const lines = contacts.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`);
-      await setBotSession(c.env, userId, { flow: "contact:delete:pick", payload: { ids: contacts.map((item) => item.id) } });
+      const sessionDelC: BotSession = { flow: "contact:delete:pick", payload: { ids: contacts.map((item) => item.id) } };
+      await setBotSession(c.env, userId, sessionDelC);
       await sendPagedList({
+        env: c.env,
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
+        userId,
         language,
-        title: t(language, "contactDeletePick"),
-        lines,
-        replyMarkup: sectionKeyboard(language, "contacts")
+        isAdmin,
+        session: sessionDelC,
+        kind: "dc",
+        replyKeyboard: sectionKeyboard(language, "contacts")
       });
       return c.json({ ok: true });
     }
@@ -2026,22 +2440,16 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
       return c.json({ ok: true });
     }
-    const top = await listTopWalletReputations(c.env, 20);
-    if (top.length === 0) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminReputationEmpty"), adminKeyboard(language));
-      return c.json({ ok: true });
-    }
-    const lines = top.map(
-      (item, index) =>
-        `${index + 1}. [${formatNetwork(item.network)}] ${maskAddress(item.address)} — ${item.score} (👍 ${item.likesCount} / 👎 ${item.dislikesCount})`
-    );
     await sendPagedList({
+      env: c.env,
       token: c.env.TELEGRAM_BOT_TOKEN,
       chatId: message.chat.id,
+      userId,
       language,
-      title: `${t(language, "adminReputationTitle")}:`,
-      lines,
-      replyMarkup: adminKeyboard(language)
+      isAdmin: true,
+      session,
+      kind: "ar",
+      replyKeyboard: adminKeyboard(language)
     });
     return c.json({ ok: true });
   }
@@ -2071,26 +2479,16 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin));
       return c.json({ ok: true });
     }
-    const entries = await listLinkAuditEntries(c.env, 20);
-    if (entries.length === 0) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminLinksEmpty"), adminKeyboard(language));
-      return c.json({ ok: true });
-    }
-    const lines = entries.map(
-      (item, index) =>
-        `${index + 1}. ${toUserLabel({
-          userId: item.actorUserId,
-          username: item.actorUsername,
-          displayName: item.actorDisplayName
-        })} · ${item.entityType} · [${formatNetwork(item.network)}] ${maskAddress(item.address)}${item.label ? ` (${item.label})` : ""}`
-    );
     await sendPagedList({
+      env: c.env,
       token: c.env.TELEGRAM_BOT_TOKEN,
       chatId: message.chat.id,
+      userId,
       language,
-      title: `${t(language, "adminLinksTitle")}:`,
-      lines,
-      replyMarkup: adminKeyboard(language)
+      isAdmin: true,
+      session,
+      kind: "al",
+      replyKeyboard: adminKeyboard(language)
     });
     return c.json({ ok: true });
   }
