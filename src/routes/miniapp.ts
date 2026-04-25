@@ -238,7 +238,7 @@ function pageHtml(): string {
           generatePromoCode: "Создать промокод",
           durationDays: "Длительность в днях",
           maxActivations: "Макс. активаций",
-          bonusPercent: "Бонусный процент (например 20 = +20% дней)",
+          bonusPercent: "Надбавка % к дням при активации (20 → +20% к базовым дням, не от оплаты)",
           createPromo: "Создать промокод",
           promoCodes: "Промокоды",
           stopWallets: "Стоп-кошельки",

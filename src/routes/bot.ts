@@ -162,7 +162,7 @@ const I18N = {
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
     adminPromoAsk:
-      "Создание промокода (одной строкой):\nCODE DAYS [MAX] [BONUS]\n\nЧто означает:\n• CODE — код (например SPRING2026)\n• DAYS — сколько дней дает\n• MAX — лимит активаций (необязательно)\n• BONUS — бонус % к дням (необязательно)\n\nПримеры:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
+      "Создание промокода (одной строкой):\nCODE DAYS [MAX] [BONUS]\n\nЧто означает:\n• CODE — код (например SPRING2026)\n• DAYS — базовое число дней подписки\n• MAX — лимит активаций (необязательно)\n• BONUS — % надбавки к DAYS при активации (не от покупки): дней = floor(DAYS + DAYS×BONUS/100). Пример: 30 + 20% = 36 дн.\n\nПримеры:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
       "Формат неверный.\nИспользуйте: CODE DAYS [MAX] [BONUS]\nПример: SPRING2026 30 100 20",
@@ -299,7 +299,7 @@ const I18N = {
     adminLinksEmpty: "Link log is empty.",
     adminLinksTitle: "Who added which links",
     adminPromoAsk:
-      "Create promo in one line:\nCODE DAYS [MAX] [BONUS]\n\nMeaning:\n• CODE — promo code (example SPRING2026)\n• DAYS — subscription days\n• MAX — max activations (optional)\n• BONUS — bonus % to days (optional)\n\nExamples:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
+      "Create promo in one line:\nCODE DAYS [MAX] [BONUS]\n\nMeaning:\n• CODE — promo code (example SPRING2026)\n• DAYS — base subscription days\n• MAX — max activations (optional)\n• BONUS — extra % on top of DAYS at activation (not from payment): days = floor(DAYS + DAYS×BONUS/100). Example: 30 + 20% = 36 days\n\nExamples:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
       "Invalid format.\nUse: CODE DAYS [MAX] [BONUS]\nExample: SPRING2026 30 100 20",
@@ -849,7 +849,9 @@ function buildAdminPromoGuideHtml(language: Language): string {
       "• <b>CODE</b> — код, например <code>SPRING2026</code>\n" +
       "• <b>DAYS</b> — сколько дней дает промокод\n" +
       "• <b>MAX</b> — лимит активаций (необязательно)\n" +
-      "• <b>BONUS</b> — бонус % к дням (необязательно)\n\n" +
+      "• <b>BONUS</b> — к DAYS добавляется BONUS% (при активации; не от суммы оплаты)\n" +
+      "  Итог: <code>дней = floor(DAYS + DAYS×BONUS/100)</code>\n" +
+      "  Пример: <code>30</code> и BONUS <code>20</code> → 36 дней\n\n" +
       "<b>Примеры:</b>\n" +
       "<code>SPRING2026 30</code>\n" +
       "<code>SPRING2026 30 100</code>\n" +
@@ -862,7 +864,9 @@ function buildAdminPromoGuideHtml(language: Language): string {
     "• <b>CODE</b> — promo code, e.g. <code>SPRING2026</code>\n" +
     "• <b>DAYS</b> — subscription days\n" +
     "• <b>MAX</b> — max activations (optional)\n" +
-    "• <b>BONUS</b> — bonus % to days (optional)\n\n" +
+    "• <b>BONUS</b> — extra BONUS% added to DAYS on activation (not tied to payment)\n" +
+    "  Total: <code>days = floor(DAYS + DAYS×BONUS/100)</code>\n" +
+    "  Example: <code>30</code> with BONUS <code>20</code> → 36 days\n\n" +
     "<b>Examples:</b>\n" +
     "<code>SPRING2026 30</code>\n" +
     "<code>SPRING2026 30 100</code>\n" +
