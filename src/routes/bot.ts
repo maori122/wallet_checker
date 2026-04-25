@@ -507,6 +507,15 @@ function isSessionValidForPickPagedList(session: BotSession | null, kind: PagedL
   return true;
 }
 
+/** "N. Имя" or "N. BEP20" if no custom name — без [сеть] в скобках. */
+function listItemHeadHtml(item: { label: string | null | undefined; network: WalletNetwork }): string {
+  const trimmed = item.label?.trim();
+  if (trimmed) {
+    return escapeHtml(trimmed);
+  }
+  return formatNetwork(item.network);
+}
+
 function buildListPageBody(
   title: string,
   lineChunk: string[],
@@ -557,10 +566,10 @@ async function loadPagedListContent(
       if (wallets.length === 0) {
         return null;
       }
-      const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${escapeHtml(item.label.trim())})` : "";
-        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${label}\n<blockquote>${escapeHtml(item.address)}</blockquote>`;
-      });
+      const lines = wallets.map(
+        (item, index) =>
+          `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(item.address)}</blockquote>`
+      );
       return { title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`, lines, parseMode: "HTML" };
     }
     case "cl": {
@@ -570,9 +579,7 @@ async function loadPagedListContent(
       }
       const lines = contacts.map(
         (item, index) =>
-          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<blockquote>${escapeHtml(
-            item.address
-          )}</blockquote>`
+          `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(item.address)}</blockquote>`
       );
       return { title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`, lines, parseMode: "HTML" };
     }
@@ -584,12 +591,10 @@ async function loadPagedListContent(
       if (wallets.length === 0) {
         return null;
       }
-      const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${escapeHtml(item.label.trim())})` : "";
-        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${label}\n<blockquote>${escapeHtml(
-          maskAddress(item.address)
-        )}</blockquote>`;
-      });
+      const lines = wallets.map(
+        (item, index) =>
+          `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(maskAddress(item.address))}</blockquote>`
+      );
       return { title: t(language, "walletBalancesPick"), lines, parseMode: "HTML" };
     }
     case "h": {
@@ -637,12 +642,10 @@ async function loadPagedListContent(
       if (wallets.length === 0) {
         return null;
       }
-      const lines = wallets.map((item, index) => {
-        const label = item.label?.trim() ? ` (${escapeHtml(item.label.trim())})` : "";
-        return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${label}\n<blockquote>${escapeHtml(
-          maskAddress(item.address)
-        )}</blockquote>`;
-      });
+      const lines = wallets.map(
+        (item, index) =>
+          `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(maskAddress(item.address))}</blockquote>`
+      );
       return { title: t(language, "walletDeletePick"), lines, parseMode: "HTML" };
     }
     case "dc": {
@@ -655,9 +658,7 @@ async function loadPagedListContent(
       }
       const lines = contacts.map(
         (item, index) =>
-          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<blockquote>${escapeHtml(
-            maskAddress(item.address)
-          )}</blockquote>`
+          `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(maskAddress(item.address))}</blockquote>`
       );
       return { title: t(language, "contactDeletePick"), lines, parseMode: "HTML" };
     }
