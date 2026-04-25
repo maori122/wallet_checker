@@ -516,16 +516,9 @@ function listItemHeadHtml(item: { label: string | null | undefined; network: Wal
   return formatNetwork(item.network);
 }
 
-function buildListPageBody(
-  title: string,
-  lineChunk: string[],
-  currentPage0: number,
-  totalPages: number
-): string {
-  if (totalPages <= 1) {
-    return `${title}\n${lineChunk.join("\n")}`;
-  }
-  return `${title}\n${lineChunk.join("\n")}\n\n${String(currentPage0 + 1)}`;
+/** Заголовок, пустая строка, строки списка. Номер страницы только на inline-кнопках. */
+function buildListPageBody(title: string, lineChunk: string[]): string {
+  return `${title}\n\n${lineChunk.join("\n")}`;
 }
 
 function buildListPaginationInline(
@@ -773,7 +766,7 @@ async function sendPagedList(params: {
     return;
   }
   const firstChunk = pages[0] ?? [];
-  const body0 = buildListPageBody(content.title, firstChunk, 0, totalPages);
+  const body0 = buildListPageBody(content.title, firstChunk);
   if (totalPages === 1) {
     await sendTelegramMessage(
       params.token,
@@ -1284,7 +1277,7 @@ bot.post("/telegram", async (c) => {
       const wantPage = Math.max(0, Number.parseInt(pageArg, 10) || 0);
       const p = Math.min(wantPage, Math.max(0, total - 1));
       const chunk = pages[p] ?? [];
-      const body = buildListPageBody(content.title, chunk, p, total);
+      const body = buildListPageBody(content.title, chunk);
       const inline = buildListPaginationInline(k, p, total, language);
       const msgId = cbMessage.message_id;
       if (typeof msgId === "number") {
