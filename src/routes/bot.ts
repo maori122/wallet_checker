@@ -113,6 +113,7 @@ const I18N = {
     transferRateNoSender: "Для этого перевода нет кошелька контрагента, оценка недоступна.",
     transferRateAskVote: "Поставьте оценку кошельку контрагента.",
     transferRateDone: "Оценка сохранена.",
+    walletActionsOnly: "Эта кнопка работает только в разделе «Отслеживаемые».",
     cabinetTitle: "Личный кабинет",
     cabinetPlan: "Тариф",
     cabinetStatus: "Статус",
@@ -249,6 +250,7 @@ const I18N = {
     transferRateNoSender: "This transfer has no counterparty wallet, rating is unavailable.",
     transferRateAskVote: "Rate the counterparty wallet.",
     transferRateDone: "Rating saved.",
+    walletActionsOnly: "This action works only in the wallets section.",
     cabinetTitle: "Account",
     cabinetPlan: "Plan",
     cabinetStatus: "Status",
@@ -630,7 +632,16 @@ function voteKeyboard(language: Language): ReplyMarkup {
   };
 }
 
-function sectionKeyboard(language: Language): ReplyMarkup {
+function sectionKeyboard(language: Language, section: "wallets" | "contacts" = "wallets"): ReplyMarkup {
+  if (section === "contacts") {
+    return {
+      keyboard: [
+        [t(language, "btnList"), t(language, "btnAdd"), t(language, "btnDelete")],
+        [t(language, "btnMainMenu")]
+      ],
+      resize_keyboard: true
+    };
+  }
   return {
     keyboard: [
       [t(language, "btnList"), t(language, "btnAdd"), t(language, "btnDelete")],
@@ -1226,14 +1237,14 @@ bot.post("/telegram", async (c) => {
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "contact:add:label", payload: { network, address: text } });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactLabel"), sectionKeyboard(language));
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactLabel"), sectionKeyboard(language, "contacts"));
     return c.json({ ok: true });
   }
 
   if (session?.flow === "contact:add:auto-address") {
     const candidates = detectAddressNetworks(text);
     if (candidates.length === 0) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidAddress"), sectionKeyboard(language));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidAddress"), sectionKeyboard(language, "contacts"));
       return c.json({ ok: true });
     }
     if (candidates.length > 1) {
@@ -1253,7 +1264,7 @@ bot.post("/telegram", async (c) => {
       flow: "contact:add:label",
       payload: { network: candidates[0], address: text }
     });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactLabel"), sectionKeyboard(language));
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactLabel"), sectionKeyboard(language, "contacts"));
     return c.json({ ok: true });
   }
 
@@ -1274,7 +1285,7 @@ bot.post("/telegram", async (c) => {
       flow: "contact:add:label",
       payload: { network, address }
     });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactLabel"), sectionKeyboard(language));
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactLabel"), sectionKeyboard(language, "contacts"));
     return c.json({ ok: true });
   }
 
@@ -1294,10 +1305,10 @@ bot.post("/telegram", async (c) => {
     try {
       await createContact(c.env, userId, { network, address, label: text });
       await setBotSession(c.env, userId, { flow: "section:contacts" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactAdded"), sectionKeyboard(language));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactAdded"), sectionKeyboard(language, "contacts"));
     } catch (error) {
       const messageText = mapCreateError(language, error, "contact");
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, messageText, sectionKeyboard(language, "contacts"));
     }
     return c.json({ ok: true });
   }
@@ -1306,12 +1317,12 @@ bot.post("/telegram", async (c) => {
     const ids = (session.payload?.ids as string[] | undefined) ?? [];
     const pick = Number.parseInt(text, 10);
     if (!Number.isInteger(pick) || pick < 1 || pick > ids.length) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidNumber"), sectionKeyboard(language));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "invalidNumber"), sectionKeyboard(language, "contacts"));
       return c.json({ ok: true });
     }
     await deleteContact(c.env, userId, ids[pick - 1]);
     await setBotSession(c.env, userId, { flow: "section:contacts" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactDeleted"), sectionKeyboard(language));
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactDeleted"), sectionKeyboard(language, "contacts"));
     return c.json({ ok: true });
   }
 
@@ -1616,7 +1627,7 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
-      sectionKeyboard(language),
+      sectionKeyboard(language, "contacts"),
       "HTML"
     );
     return c.json({ ok: true });
@@ -1730,7 +1741,7 @@ bot.post("/telegram", async (c) => {
     if (section === "contacts") {
       const contacts = await listContacts(c.env, userId);
       if (contacts.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsListEmpty"), sectionKeyboard(language));
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsListEmpty"), sectionKeyboard(language, "contacts"));
         return c.json({ ok: true });
       }
       const lines = contacts.map(
@@ -1743,7 +1754,7 @@ bot.post("/telegram", async (c) => {
         language,
         title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
         lines,
-        replyMarkup: sectionKeyboard(language),
+        replyMarkup: sectionKeyboard(language, "contacts"),
         parseMode: "HTML"
       });
       return c.json({ ok: true });
@@ -1761,7 +1772,8 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnBalance")) {
     const section = currentSection(session);
     if (section !== "wallets") {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin));
+      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
     const wallets = await listWallets(c.env, userId);
@@ -1788,7 +1800,8 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnHistory")) {
     const section = currentSection(session);
     if (section !== "wallets") {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin));
+      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
     const history = await listTransferHistory(c.env, userId, 10);
@@ -1823,7 +1836,8 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnRateTransfer")) {
     const section = currentSection(session);
     if (section !== "wallets") {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin));
+      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin);
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
     const history = await listTransferHistory(c.env, userId, 20);
@@ -1857,7 +1871,7 @@ bot.post("/telegram", async (c) => {
     }
     if (section === "contacts") {
       await setBotSession(c.env, userId, { flow: "contact:add:auto-address" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language, "contacts"));
       return c.json({ ok: true });
     }
     await sendTelegramMessage(
@@ -1879,7 +1893,7 @@ bot.post("/telegram", async (c) => {
   if (session?.flow === "contact:add:network" && parseNetworkLabel(text)) {
     const network = parseNetworkLabel(text) as WalletNetwork;
     await setBotSession(c.env, userId, { flow: "contact:add:address", payload: { network } });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language));
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askContactAddress"), sectionKeyboard(language, "contacts"));
     return c.json({ ok: true });
   }
 
@@ -1909,7 +1923,7 @@ bot.post("/telegram", async (c) => {
     if (section === "contacts") {
       const contacts = await listContacts(c.env, userId);
       if (contacts.length === 0) {
-        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsDeleteEmpty"), sectionKeyboard(language));
+        await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsDeleteEmpty"), sectionKeyboard(language, "contacts"));
         return c.json({ ok: true });
       }
       const lines = contacts.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`);
@@ -1920,7 +1934,7 @@ bot.post("/telegram", async (c) => {
         language,
         title: t(language, "contactDeletePick"),
         lines,
-        replyMarkup: sectionKeyboard(language)
+        replyMarkup: sectionKeyboard(language, "contacts")
       });
       return c.json({ ok: true });
     }
