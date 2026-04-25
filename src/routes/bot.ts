@@ -174,7 +174,7 @@ const I18N = {
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
     adminPromoAsk:
-      "Создание промокода (одной строкой):\nCODE DAYS [MAX] [BONUS]\n\nЧто означает:\n• CODE — код (например SPRING2026)\n• DAYS — сколько дней подписки даёт код по умолчанию\n• MAX — не больше скольки раз можно активировать (необязательно)\n• BONUS — на сколько процентов дольше сделать срок: к дням из поля выше прибавляется столько же процентов от этого числа (к оплате не привязано). Пример: 30 дней и бонус 20 — выйдет 36 дней: 20% от 30 — это 6, плюс 30.\n\nПримеры:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
+      "Создать промокод — одна строка:\nCODE DAYS [MAX] [BONUS]\n\n• CODE — сам код, напр. SPRING2026\n• DAYS — дней подписки (база)\n• MAX — лимит вводов, можно пропустить\n• BONUS — по желанию: +% к дням. 30+20% = 36, не от суммы оплаты\n\nПримеры: SPRING2026 30 | SPRING2026 30 100 | SPRING2026 30 100 20",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
       "Формат неверный.\nИспользуйте: CODE DAYS [MAX] [BONUS]\nПример: SPRING2026 30 100 20",
@@ -313,7 +313,7 @@ const I18N = {
     adminLinksEmpty: "Link log is empty.",
     adminLinksTitle: "Who added which links",
     adminPromoAsk:
-      "Create promo in one line:\nCODE DAYS [MAX] [BONUS]\n\nMeaning:\n• CODE — the code (e.g. SPRING2026)\n• DAYS — how many subscription days the code gives by default\n• MAX — how many times it can be used at most (optional)\n• BONUS — by what percent to make the term longer: that percent of the days above is added when someone uses the code (not tied to payment). Example: 30 days and bonus 20 — that’s 36 days: 20% of 30 is 6, plus 30.\n\nExamples:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
+      "Create a promo in one line:\nCODE DAYS [MAX] [BONUS]\n\n• CODE — e.g. SPRING2026\n• DAYS — subscription days (base)\n• MAX — redemption cap, optional\n• BONUS — optional: +% to days. 30+20% = 36, not payment-related\n\nExamples: SPRING2026 30 | SPRING2026 30 100 | SPRING2026 30 100 20",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
       "Invalid format.\nUse: CODE DAYS [MAX] [BONUS]\nExample: SPRING2026 30 100 20",
@@ -1200,10 +1200,10 @@ function buildAdminPromoGuideHtml(language: Language): string {
     return (
       "🎟️ <b>Создание промокода</b>\n\n" +
       "<code>CODE DAYS [MAX] [BONUS]</code>\n\n" +
-      "• <b>CODE</b> — код, например <code>SPRING2026</code>\n" +
-      "• <b>DAYS</b> — сколько дней подписки даёт код\n" +
-      "• <b>MAX</b> — не больше скольки раз его можно ввести (если не нужен лимит — не пишите)\n" +
-      "• <b>BONUS</b> — на сколько процентов сделать срок длиннее: к дням из <code>DAYS</code> прибавляется столько же процентов от этого числа; к сумме оплаты отношения нет. Пример: в <code>DAYS</code> стоит 30, в <b>BONUS</b> — 20, тогда выйдет 36 дней (20% от 30 — шесть дней, плюс 30).\n\n" +
+      "• <b>CODE</b> — ваш код, напр. <code>SPRING2026</code>\n" +
+      "• <b>DAYS</b> — сколько дней подписки дать (база)\n" +
+      "• <b>MAX</b> — лимит вводов, можно пропустить\n" +
+      "• <b>BONUS</b> — по желанию: +% к <code>DAYS</code>, напр. 30+20% → 36 (не от оплаты)\n\n" +
       "<b>Примеры:</b>\n" +
       "<code>SPRING2026 30</code>\n" +
       "<code>SPRING2026 30 100</code>\n" +
@@ -1213,10 +1213,10 @@ function buildAdminPromoGuideHtml(language: Language): string {
   return (
     "🎟️ <b>Create promo code</b>\n\n" +
     "<code>CODE DAYS [MAX] [BONUS]</code>\n\n" +
-    "• <b>CODE</b> — the code, e.g. <code>SPRING2026</code>\n" +
-    "• <b>DAYS</b> — how many subscription days the code gives\n" +
-    "• <b>MAX</b> — at most how many times it can be used (optional; skip if you do not need a cap)\n" +
-    "• <b>BONUS</b> — by what percent to make the term longer: that percent of the <code>DAYS</code> value is added when someone uses the code; it has nothing to do with the payment size. Example: <code>DAYS</code> is 30, <b>BONUS</b> is 20 — that’s 36 days (20% of 30 is 6, plus 30).\n\n" +
+    "• <b>CODE</b> — your code, e.g. <code>SPRING2026</code>\n" +
+    "• <b>DAYS</b> — subscription days (base amount)\n" +
+    "• <b>MAX</b> — redemption cap, optional\n" +
+    "• <b>BONUS</b> — optional: +% to <code>DAYS</code>. 30+20% → 36 days (not the payment size)\n\n" +
     "<b>Examples:</b>\n" +
     "<code>SPRING2026 30</code>\n" +
     "<code>SPRING2026 30 100</code>\n" +
