@@ -161,10 +161,10 @@ const I18N = {
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
     adminPromoAsk:
-      "Отправьте параметры промокода одной строкой:\nCODE DAYS [MAX] [BONUS]\nПример: SPRING2026 30 100 20\nГде MAX и BONUS необязательны.",
+      "Создание промокода (одной строкой):\nCODE DAYS [MAX] [BONUS]\n\nЧто означает:\n• CODE — код (например SPRING2026)\n• DAYS — сколько дней дает\n• MAX — лимит активаций (необязательно)\n• BONUS — бонус % к дням (необязательно)\n\nПримеры:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
-      "Неверный формат. Используйте: CODE DAYS [MAX] [BONUS], например SPRING2026 30 100 20.",
+      "Формат неверный.\nИспользуйте: CODE DAYS [MAX] [BONUS]\nПример: SPRING2026 30 100 20",
     btnWallets: "👁️ Отслеживаемые",
     btnContacts: "👥 Знакомые кошельки",
     btnSettings: "⚙️ Настройки",
@@ -297,10 +297,10 @@ const I18N = {
     adminLinksEmpty: "Link log is empty.",
     adminLinksTitle: "Who added which links",
     adminPromoAsk:
-      "Send promo parameters in one line:\nCODE DAYS [MAX] [BONUS]\nExample: SPRING2026 30 100 20\nMAX and BONUS are optional.",
+      "Create promo in one line:\nCODE DAYS [MAX] [BONUS]\n\nMeaning:\n• CODE — promo code (example SPRING2026)\n• DAYS — subscription days\n• MAX — max activations (optional)\n• BONUS — bonus % to days (optional)\n\nExamples:\n• SPRING2026 30\n• SPRING2026 30 100\n• SPRING2026 30 100 20",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
-      "Invalid format. Use: CODE DAYS [MAX] [BONUS], for example SPRING2026 30 100 20.",
+      "Invalid format.\nUse: CODE DAYS [MAX] [BONUS]\nExample: SPRING2026 30 100 20",
     btnWallets: "👛 My wallets",
     btnContacts: "👥 Known wallets",
     btnSettings: "⚙️ Settings",
@@ -459,6 +459,7 @@ async function sendPagedList(params: {
   lines: string[];
   replyMarkup?: ReplyMarkup;
   pageSize?: number;
+  parseMode?: "HTML" | "MarkdownV2";
 }): Promise<void> {
   const pages = paginateLines(params.lines, params.pageSize ?? 8);
   for (let i = 0; i < pages.length; i += 1) {
@@ -472,7 +473,8 @@ async function sendPagedList(params: {
       params.token,
       params.chatId,
       `${params.title}\n${pages[i].join("\n")}${pageLabel}`,
-      params.replyMarkup
+      params.replyMarkup,
+      params.parseMode
     );
   }
 }
@@ -491,15 +493,16 @@ async function showWalletsList(
   }
   const lines = wallets.map((item, index) => {
     const label = item.label?.trim() ? ` (${item.label.trim()})` : "";
-    return `${index + 1}. [${formatNetwork(item.network)}]${label}\n${item.address}`;
+    return `${index + 1}. <b>[${formatNetwork(item.network)}]</b>${escapeHtml(label)}\n<code>${escapeHtml(item.address)}</code>`;
   });
   await sendPagedList({
     token: env.TELEGRAM_BOT_TOKEN,
     chatId,
     language,
-    title: `${t(language, "walletsTitle")}:`,
+    title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`,
     lines,
-    replyMarkup
+    replyMarkup,
+    parseMode: "HTML"
   });
 }
 
@@ -824,6 +827,35 @@ function buildCabinetSummaryHtml(
     `🟢 <b>${escapeHtml(t(language, "cabinetStatus"))}:</b> ${escapeHtml(statusLabel)}\n` +
     `🕒 <b>${escapeHtml(t(language, "cabinetExpiresAt"))}:</b> ${escapeHtml(expiresAt)}\n` +
     `🎟️ <b>${escapeHtml(t(language, "cabinetPromoActivations"))}:</b> ${subscription.promoActivations}`
+  );
+}
+
+function buildAdminPromoGuideHtml(language: Language): string {
+  if (language === "ru") {
+    return (
+      "🎟️ <b>Создание промокода</b>\n\n" +
+      "<code>CODE DAYS [MAX] [BONUS]</code>\n\n" +
+      "• <b>CODE</b> — код, например <code>SPRING2026</code>\n" +
+      "• <b>DAYS</b> — сколько дней дает промокод\n" +
+      "• <b>MAX</b> — лимит активаций (необязательно)\n" +
+      "• <b>BONUS</b> — бонус % к дням (необязательно)\n\n" +
+      "<b>Примеры:</b>\n" +
+      "<code>SPRING2026 30</code>\n" +
+      "<code>SPRING2026 30 100</code>\n" +
+      "<code>SPRING2026 30 100 20</code>"
+    );
+  }
+  return (
+    "🎟️ <b>Create promo code</b>\n\n" +
+    "<code>CODE DAYS [MAX] [BONUS]</code>\n\n" +
+    "• <b>CODE</b> — promo code, e.g. <code>SPRING2026</code>\n" +
+    "• <b>DAYS</b> — subscription days\n" +
+    "• <b>MAX</b> — max activations (optional)\n" +
+    "• <b>BONUS</b> — bonus % to days (optional)\n\n" +
+    "<b>Examples:</b>\n" +
+    "<code>SPRING2026 30</code>\n" +
+    "<code>SPRING2026 30 100</code>\n" +
+    "<code>SPRING2026 30 100 20</code>"
   );
 }
 
@@ -1385,7 +1417,13 @@ bot.post("/telegram", async (c) => {
     const isBonusValid = Number.isInteger(bonusPercent) && bonusPercent >= 0 && bonusPercent <= 1000;
 
     if (!code || !isDurationValid || !isMaxValid || !isBonusValid || parts.length > 4) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoInvalid"), adminKeyboard(language));
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `❌ ${escapeHtml(t(language, "adminPromoInvalid"))}\n\n${buildAdminPromoGuideHtml(language)}`,
+        adminKeyboard(language),
+        "HTML"
+      );
       return c.json({ ok: true });
     }
 
@@ -1400,7 +1438,13 @@ bot.post("/telegram", async (c) => {
       await setBotSession(c.env, userId, { flow: "section:admin" });
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoCreated"), adminKeyboard(language));
     } catch {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoInvalid"), adminKeyboard(language));
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `❌ ${escapeHtml(t(language, "adminPromoInvalid"))}\n\n${buildAdminPromoGuideHtml(language)}`,
+        adminKeyboard(language),
+        "HTML"
+      );
     }
     return c.json({ ok: true });
   }
@@ -1568,19 +1612,33 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnContacts")) {
     await setBotSession(c.env, userId, { flow: "section:contacts" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsTitle"), sectionKeyboard(language));
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
+      sectionKeyboard(language),
+      "HTML"
+    );
     return c.json({ ok: true });
   }
 
   if (isBtn(text, "btnSettings")) {
     await setBotSession(c.env, userId, { flow: "section:settings" });
-    const summary =
-      `${t(language, "settingsTitle")}\n` +
-      `BTC: ${settings.btcThreshold}\nETH: ${settings.ethThreshold}\nUSDT: ${settings.usdtThreshold}\n` +
-      `USD: ${settings.showUsdEstimate ? "ON" : "OFF"}\n` +
-      `Chain: ${settings.blockchainNotificationsEnabled ? "ON" : "OFF"}\n` +
-      `Service: ${settings.serviceNotificationsEnabled ? "ON" : "OFF"}`;
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, summary, settingsKeyboard(language));
+    const summaryHtml =
+      `⚙️ <b>${escapeHtml(t(language, "settingsTitle"))}</b>\n\n` +
+      `• <b>BTC:</b> <code>${escapeHtml(settings.btcThreshold)}</code>\n` +
+      `• <b>ETH:</b> <code>${escapeHtml(settings.ethThreshold)}</code>\n` +
+      `• <b>USDT:</b> <code>${escapeHtml(settings.usdtThreshold)}</code>\n` +
+      `• <b>USD:</b> ${settings.showUsdEstimate ? "ON" : "OFF"}\n` +
+      `• <b>Chain:</b> ${settings.blockchainNotificationsEnabled ? "ON" : "OFF"}\n` +
+      `• <b>Service:</b> ${settings.serviceNotificationsEnabled ? "ON" : "OFF"}`;
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      summaryHtml,
+      settingsKeyboard(language),
+      "HTML"
+    );
     return c.json({ ok: true });
   }
 
@@ -1616,7 +1674,13 @@ bot.post("/telegram", async (c) => {
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "section:admin" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPanelTitle"), adminKeyboard(language));
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      `🛡️ <b>${escapeHtml(t(language, "adminPanelTitle"))}</b>`,
+      adminKeyboard(language),
+      "HTML"
+    );
     return c.json({ ok: true });
   }
 
@@ -1669,14 +1733,18 @@ bot.post("/telegram", async (c) => {
         await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "contactsListEmpty"), sectionKeyboard(language));
         return c.json({ ok: true });
       }
-      const lines = contacts.map((item, index) => `${index + 1}. [${formatNetwork(item.network)}] ${item.label} - ${maskAddress(item.address)}`);
+      const lines = contacts.map(
+        (item, index) =>
+          `${index + 1}. <b>[${formatNetwork(item.network)}] ${escapeHtml(item.label)}</b>\n<code>${escapeHtml(item.address)}</code>`
+      );
       await sendPagedList({
         token: c.env.TELEGRAM_BOT_TOKEN,
         chatId: message.chat.id,
         language,
-        title: `${t(language, "contactsTitle")}:`,
+        title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
         lines,
-        replyMarkup: sectionKeyboard(language)
+        replyMarkup: sectionKeyboard(language),
+        parseMode: "HTML"
       });
       return c.json({ ok: true });
     }
@@ -2019,7 +2087,13 @@ bot.post("/telegram", async (c) => {
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "admin:promo:create" });
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoAsk"), adminKeyboard(language));
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      buildAdminPromoGuideHtml(language),
+      adminKeyboard(language),
+      "HTML"
+    );
     return c.json({ ok: true });
   }
 
