@@ -516,9 +516,22 @@ function listItemHeadHtml(item: { label: string | null | undefined; network: Wal
   return formatNetwork(item.network);
 }
 
-/** Заголовок, пустая строка, строки списка. Листание — Prev/Next; по центру inline — «Главное меню». */
-function buildListPageBody(title: string, lineChunk: string[]): string {
-  return `${title}\n\n${lineChunk.join("\n")}`;
+type ListPageTitleContext = {
+  kind: PagedListKind;
+  currentPage0: number;
+  totalPages: number;
+  language: Language;
+};
+
+/** Заголовок, пустая строка, строки. Для «Отслеживаемые» при нескольких страницах: «/ стр.N» (или p.N). */
+function buildListPageBody(title: string, lineChunk: string[], ctx?: ListPageTitleContext): string {
+  let head = title;
+  if (ctx && ctx.kind === "w" && ctx.totalPages > 1) {
+    const p = ctx.currentPage0 + 1;
+    const part = ctx.language === "ru" ? "стр." : "p.";
+    head = `${title} / ${part}${p}`;
+  }
+  return `${head}\n\n${lineChunk.join("\n")}`;
 }
 
 function buildListPaginationInline(
@@ -765,7 +778,12 @@ async function sendPagedList(params: {
     return;
   }
   const firstChunk = pages[0] ?? [];
-  const body0 = buildListPageBody(content.title, firstChunk);
+  const body0 = buildListPageBody(content.title, firstChunk, {
+    kind: params.kind,
+    currentPage0: 0,
+    totalPages,
+    language: params.language
+  });
   if (totalPages === 1) {
     await sendTelegramMessage(
       params.token,
@@ -1292,7 +1310,12 @@ bot.post("/telegram", async (c) => {
       const wantPage = Math.max(0, Number.parseInt(pageArg, 10) || 0);
       const p = Math.min(wantPage, Math.max(0, total - 1));
       const chunk = pages[p] ?? [];
-      const body = buildListPageBody(content.title, chunk);
+      const body = buildListPageBody(content.title, chunk, {
+        kind: k,
+        currentPage0: p,
+        totalPages: total,
+        language
+      });
       const inline = buildListPaginationInline(k, p, total, language);
       const msgId = cbMessage.message_id;
       if (typeof msgId === "number") {
