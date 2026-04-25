@@ -516,7 +516,7 @@ function listItemHeadHtml(item: { label: string | null | undefined; network: Wal
   return formatNetwork(item.network);
 }
 
-/** Заголовок, пустая строка, строки списка. Номер страницы только на inline-кнопках. */
+/** Заголовок, пустая строка, строки списка. Листание — Prev/Next; по центру inline — «Главное меню». */
 function buildListPageBody(title: string, lineChunk: string[]): string {
   return `${title}\n\n${lineChunk.join("\n")}`;
 }
@@ -529,7 +529,6 @@ function buildListPaginationInline(
 ): InlineReplyMarkup {
   const prevPage = currentPage0 <= 0 ? 0 : currentPage0 - 1;
   const nextPage = currentPage0 >= totalPages - 1 ? totalPages - 1 : currentPage0 + 1;
-  const label = String(currentPage0 + 1);
   const k = `p:${kind}:`;
   if (totalPages <= 1) {
     return { inline_keyboard: [] };
@@ -538,7 +537,7 @@ function buildListPaginationInline(
     inline_keyboard: [
       [
         { text: language === "ru" ? "⬅️ Пред." : "⬅️ Prev", callback_data: `${k}${prevPage}` },
-        { text: label, callback_data: "p:noop" },
+        { text: t(language, "btnMainMenu"), callback_data: "m:main" },
         { text: language === "ru" ? "След. ➡️" : "Next ➡️", callback_data: `${k}${nextPage}` }
       ]
     ]
@@ -778,7 +777,7 @@ async function sendPagedList(params: {
     return;
   }
   const inline = buildListPaginationInline(params.kind, 0, totalPages, params.language);
-  const listRes = await sendTelegramMessage(
+  await sendTelegramMessage(
     params.token,
     params.chatId,
     body0,
@@ -786,9 +785,6 @@ async function sendPagedList(params: {
     content.parseMode,
     inline
   );
-  if (listRes.ok) {
-    await resendChatReplyKeyboard(params.token, params.chatId, params.replyKeyboard);
-  }
 }
 
 async function showWalletsList(
@@ -1036,33 +1032,6 @@ function adminKeyboard(language: Language): ReplyMarkup {
   };
 }
 
-/**
- * Сообщение только с inline не восстанавливает обычную клавиатуру (Главное меню и т.д.).
- * Отдельное короткое сообщение с reply_markup — клавиатура снова внизу. Не меняет lastUiMessageByChat
- * (удаляется при смене UI по-прежнему основное сообщение со списком).
- */
-async function resendChatReplyKeyboard(token: string, chatId: number, replyMarkup: ReplyMarkup): Promise<void> {
-  const trySend = async (text: string) =>
-    fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        reply_markup: replyMarkup,
-        disable_notification: true
-      })
-    });
-  let res = await trySend("\u200b");
-  if (!res.ok) {
-    res = await trySend(" ");
-  }
-  if (!res.ok) {
-    // eslint-disable-next-line no-console
-    console.warn("resendChatReplyKeyboard failed", { status: res.status, body: await res.text().catch(() => ""), chatId });
-  }
-}
-
 async function sendTelegramMessage(
   token: string,
   chatId: number,
@@ -1272,6 +1241,22 @@ bot.post("/telegram", async (c) => {
     const data = cq.data ?? "";
     if (data === "p:noop") {
       await answerCallbackQuery(token, cq.id);
+      return c.json({ ok: true });
+    }
+    if (data === "m:main") {
+      await clearBotSession(c.env, userId);
+      const settings = await getSettings(c.env, userId);
+      const language = settings.language;
+      const isAdmin = isAdminUser(c.env, userId);
+      const subscription = await getSubscriptionInfo(c.env, userId);
+      const hasBotAccess = isAdmin || hasActiveSubscription(subscription);
+      await answerCallbackQuery(token, cq.id);
+      await sendTelegramMessage(
+        token,
+        chatId,
+        hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHint"),
+        mainKeyboard(language, isAdmin, hasBotAccess)
+      );
       return c.json({ ok: true });
     }
     const pageMatch = data.match(/^p:([^:]+):(\d+)$/);
