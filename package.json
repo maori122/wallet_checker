@@ -9,6 +9,7 @@
     "db:migrate:local": "wrangler d1 migrations apply wallet_db --local",
     "db:migrate:remote": "wrangler d1 migrations apply wallet_db --remote",
     "typecheck": "tsc --noEmit",
+    "webhook:set": "node scripts/set-telegram-webhook.mjs",
     "test": "vitest run"
   },
   "keywords": [],
