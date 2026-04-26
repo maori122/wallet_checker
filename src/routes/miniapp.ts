@@ -9,7 +9,7 @@ function pageHtml(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>VOROBEY: Check Mini App</title>
+    <title>VOROBEY: Track · Mini App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
       :root { --bg:#0f1116; --card:#171a23; --muted:#8f96a8; --text:#e8ecf7; --line:#2a3142; --btn:#4f7cff; --ok:#2ecc71; --bad:#ff5f7a; }
@@ -58,8 +58,8 @@ function pageHtml(): string {
     <div id="toast" class="toast"></div>
     <div class="wrap">
       <div class="head">
-        <div id="app-title" class="title">VOROBEY: Check</div>
-        <div id="app-subtitle" class="sub">Mini App v2: bot parity + admin tools</div>
+        <div id="app-title" class="title">VOROBEY: Track</div>
+        <div id="app-subtitle" class="sub">Private tracking of crypto wallet transactions</div>
         <div class="stats">
           <div class="stat"><div id="stat-wallets-label" class="k">Wallets</div><div id="stat-wallets" class="v">0 / 10</div></div>
           <div class="stat"><div id="stat-contacts-label" class="k">Contacts</div><div id="stat-contacts" class="v">0 / 50</div></div>
@@ -202,7 +202,8 @@ function pageHtml(): string {
       const $ = (id) => document.getElementById(id);
       const L10N = {
         ru: {
-          subtitle: "Мини-приложение v2: паритет с ботом + админ-инструменты",
+          appTitle: "VOROBEY: Track",
+          subtitle: "Приватный трекинг транзакций криптокошельков",
           wallets: "Кошельки",
           contacts: "Контакты",
           role: "Роль",
@@ -292,7 +293,8 @@ function pageHtml(): string {
           accessFirst: "Сначала оплатите подписку в разделе Cabinet, затем откроется весь функционал."
         },
         en: {
-          subtitle: "Mini App v2: bot parity + admin tools",
+          appTitle: "VOROBEY: Track",
+          subtitle: "Private tracking of crypto wallet transactions",
           wallets: "Wallets",
           contacts: "Contacts",
           role: "Role",
@@ -389,6 +391,8 @@ function pageHtml(): string {
         return state.lang === "en" ? en : ru;
       }
       function applyLocaleStatic() {
+        $("app-title").textContent = tr("appTitle");
+        document.title = tr("appTitle") + " · Mini App";
         $("app-subtitle").textContent = tr("subtitle");
         $("stat-wallets-label").textContent = tr("wallets");
         $("stat-contacts-label").textContent = tr("contacts");

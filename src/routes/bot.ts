@@ -82,7 +82,7 @@ type WalletNetwork = "btc" | "eth" | "bsc" | "trc20";
 
 const I18N = {
   ru: {
-    greet: "VOROBEY: Check готов. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
+    greet: "VOROBEY: Track — приватный трекинг транзакций криптокошельков. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
     unknown: "Не понял сообщение. Выберите действие кнопкой меню.",
     mainMenu: "Главное меню",
     walletsTitle: "Отслеживаемые",
@@ -220,7 +220,7 @@ const I18N = {
     serviceState: "Сервисные уведомления: {state}"
   },
   en: {
-    greet: "VOROBEY: Check is ready. Use the buttons below to manage wallets, contacts, and settings.",
+    greet: "VOROBEY: Track — private tracking of crypto wallet transactions. Use the buttons below to manage wallets, contacts, and settings.",
     unknown: "I did not understand. Please choose an action from the menu.",
     mainMenu: "Main menu",
     walletsTitle: "My wallets",
