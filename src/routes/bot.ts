@@ -827,6 +827,28 @@ async function showWalletsList(
   });
 }
 
+async function showContactsList(
+  env: Env,
+  chatId: number,
+  userId: string,
+  language: Language,
+  isAdmin: boolean,
+  session: BotSession | null,
+  replyMarkup: ReplyMarkup
+): Promise<void> {
+  await sendPagedList({
+    env,
+    token: env.TELEGRAM_BOT_TOKEN,
+    chatId,
+    userId,
+    language,
+    isAdmin,
+    session,
+    kind: "cl",
+    replyKeyboard: replyMarkup
+  });
+}
+
 function formatDateForLanguage(value: string | null, language: Language): string {
   if (!value) {
     return "—";
@@ -2076,12 +2098,15 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnContacts")) {
     await setBotSession(c.env, userId, { flow: "section:contacts" });
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
+    session = { flow: "section:contacts" };
+    await showContactsList(
+      c.env,
       message.chat.id,
-      `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
-      sectionKeyboard(language, "contacts"),
-      "HTML"
+      userId,
+      language,
+      isAdmin,
+      session,
+      sectionKeyboard(language, "contacts")
     );
     return c.json({ ok: true });
   }
