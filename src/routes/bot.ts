@@ -34,6 +34,7 @@ import {
   processSubscriptionPayments
 } from "../lib/subscription-payments";
 import { detectAddressNetworks } from "../lib/validation";
+import { MAX_CONTACTS, MAX_WALLETS } from "../lib/constants";
 
 type Variables = {
   userId: string;
@@ -83,6 +84,10 @@ type WalletNetwork = "btc" | "eth" | "bsc" | "trc20";
 const I18N = {
   ru: {
     greet: "VOROBEY: Track — приватный трекинг транзакций криптокошельков. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
+    greetQuotaLine:
+      "Квоты: отслеживаемые {wUsed}/{wMax} (свободно {wFree}), знакомые {cUsed}/{cMax} (свободно {cFree}).",
+    listQuotaWallets: "Занято {used} из {max} · Можно добавить ещё: {free}",
+    listQuotaContacts: "Занято {used} из {max} · Можно добавить ещё: {free}",
     unknown: "Не понял сообщение. Выберите действие кнопкой меню.",
     mainMenu: "Главное меню",
     walletsTitle: "Отслеживаемые",
@@ -223,6 +228,9 @@ const I18N = {
   },
   en: {
     greet: "VOROBEY: Track — private tracking of crypto wallet transactions. Use the buttons below to manage wallets, contacts, and settings.",
+    greetQuotaLine: "Quotas: tracked {wUsed}/{wMax} ({wFree} free), known {cUsed}/{cMax} ({cFree} free).",
+    listQuotaWallets: "In use: {used} of {max} · You can add: {free} more",
+    listQuotaContacts: "In use: {used} of {max} · You can add: {free} more",
     unknown: "I did not understand. Please choose an action from the menu.",
     mainMenu: "Main menu",
     btnPagedPrev: "⬅️ Prev",
@@ -529,12 +537,20 @@ type ListPageTitleContext = {
 };
 
 /** Заголовок, пустая строка, строки. Для «Отслеживаемые» при нескольких страницах: «/ стр.N» (или p.N). */
-function buildListPageBody(title: string, lineChunk: string[], ctx?: ListPageTitleContext): string {
+function buildListPageBody(
+  title: string,
+  lineChunk: string[],
+  ctx?: ListPageTitleContext,
+  quotaLineHtml?: string
+): string {
   let head = title;
   if (ctx && (ctx.kind === "w" || ctx.kind === "cl") && ctx.totalPages > 1) {
     const p = ctx.currentPage0 + 1;
     const part = ctx.language === "ru" ? "стр." : "p.";
     head = `${title} / ${part}${p}`;
+  }
+  if (quotaLineHtml) {
+    head = `${head}\n\n${quotaLineHtml}`;
   }
   return `${head}\n\n${lineChunk.join("\n")}`;
 }
@@ -607,6 +623,42 @@ function pagedListReplyKeyboard(language: Language, kind: PagedListKind, totalPa
   };
 }
 
+function quotaPlainWallets(language: Language, used: number): string {
+  const free = Math.max(0, MAX_WALLETS - used);
+  return t(language, "listQuotaWallets")
+    .replace("{used}", String(used))
+    .replace("{max}", String(MAX_WALLETS))
+    .replace("{free}", String(free));
+}
+
+function quotaPlainContacts(language: Language, used: number): string {
+  const free = Math.max(0, MAX_CONTACTS - used);
+  return t(language, "listQuotaContacts")
+    .replace("{used}", String(used))
+    .replace("{max}", String(MAX_CONTACTS))
+    .replace("{free}", String(free));
+}
+
+function quotaWalletsLineHtml(language: Language, used: number): string {
+  return `<i>${escapeHtml(quotaPlainWallets(language, used))}</i>`;
+}
+
+function quotaContactsLineHtml(language: Language, used: number): string {
+  return `<i>${escapeHtml(quotaPlainContacts(language, used))}</i>`;
+}
+
+function formatGreetQuotaLine(language: Language, walletsUsed: number, contactsUsed: number): string {
+  const wFree = Math.max(0, MAX_WALLETS - walletsUsed);
+  const cFree = Math.max(0, MAX_CONTACTS - contactsUsed);
+  return t(language, "greetQuotaLine")
+    .replace("{wUsed}", String(walletsUsed))
+    .replace("{wMax}", String(MAX_WALLETS))
+    .replace("{wFree}", String(wFree))
+    .replace("{cUsed}", String(contactsUsed))
+    .replace("{cMax}", String(MAX_CONTACTS))
+    .replace("{cFree}", String(cFree));
+}
+
 async function loadPagedListContent(
   env: Env,
   userId: string,
@@ -614,7 +666,12 @@ async function loadPagedListContent(
   isAdmin: boolean,
   session: BotSession | null,
   kind: PagedListKind
-): Promise<{ title: string; lines: string[]; parseMode?: "HTML" | "MarkdownV2" } | null> {
+): Promise<{
+  title: string;
+  lines: string[];
+  parseMode?: "HTML" | "MarkdownV2";
+  quotaLineHtml?: string;
+} | null> {
   switch (kind) {
     case "w": {
       const wallets = await listWallets(env, userId);
@@ -625,7 +682,12 @@ async function loadPagedListContent(
         (item, index) =>
           `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(item.address)}</blockquote>`
       );
-      return { title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`, lines, parseMode: "HTML" };
+      return {
+        title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`,
+        lines,
+        parseMode: "HTML",
+        quotaLineHtml: quotaWalletsLineHtml(language, wallets.length)
+      };
     }
     case "cl": {
       const contacts = await listContacts(env, userId);
@@ -636,7 +698,12 @@ async function loadPagedListContent(
         (item, index) =>
           `${index + 1}. <b>${listItemHeadHtml(item)}</b>\n<blockquote>${escapeHtml(item.address)}</blockquote>`
       );
-      return { title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`, lines, parseMode: "HTML" };
+      return {
+        title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
+        lines,
+        parseMode: "HTML",
+        quotaLineHtml: quotaContactsLineHtml(language, contacts.length)
+      };
     }
     case "b": {
       if (!isSessionValidForPickPagedList(session, "b")) {
@@ -815,12 +882,13 @@ async function sendPagedList(params: {
     if (params.session?.flow) {
       await setBotSession(params.env, params.userId, { flow: params.session.flow, payload: pld });
     }
-    await sendTelegramMessage(
-      params.token,
-      params.chatId,
-      pagedListEmptyText(params.language, params.kind),
-      params.replyKeyboard
-    );
+    let emptyText = pagedListEmptyText(params.language, params.kind);
+    if (params.kind === "w") {
+      emptyText += `\n\n${quotaPlainWallets(params.language, 0)}`;
+    } else if (params.kind === "cl") {
+      emptyText += `\n\n${quotaPlainContacts(params.language, 0)}`;
+    }
+    await sendTelegramMessage(params.token, params.chatId, emptyText, params.replyKeyboard);
     return;
   }
   const pages = paginateLines(content.lines, pageSize);
@@ -841,12 +909,17 @@ async function sendPagedList(params: {
   }
   const startPage = Math.max(0, Math.min((params.page0 ?? 0) | 0, totalPages - 1));
   const chunk = pages[startPage] ?? [];
-  const body0 = buildListPageBody(content.title, chunk, {
-    kind: params.kind,
-    currentPage0: startPage,
-    totalPages,
-    language: params.language
-  });
+  const body0 = buildListPageBody(
+    content.title,
+    chunk,
+    {
+      kind: params.kind,
+      currentPage0: startPage,
+      totalPages,
+      language: params.language
+    },
+    content.quotaLineHtml
+  );
   const replyMarkup =
     totalPages > 1
       ? pagedListReplyKeyboard(params.language, params.kind, totalPages)
@@ -1399,12 +1472,17 @@ bot.post("/telegram", async (c) => {
       const wantPage = Math.max(0, Number.parseInt(pageArg, 10) || 0);
       const p = Math.min(wantPage, Math.max(0, total - 1));
       const chunk = pages[p] ?? [];
-      const body = buildListPageBody(content.title, chunk, {
-        kind: k,
-        currentPage0: p,
-        totalPages: total,
-        language
-      });
+      const body = buildListPageBody(
+        content.title,
+        chunk,
+        {
+          kind: k,
+          currentPage0: p,
+          totalPages: total,
+          language
+        },
+        content.quotaLineHtml
+      );
       const inline = buildListPaginationInline(k, p, total, language);
       const msgId = cbMessage.message_id;
       if (typeof msgId === "number") {
@@ -1456,9 +1534,13 @@ bot.post("/telegram", async (c) => {
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
-    const welcomeText = hasBotAccess
+    let welcomeText = hasBotAccess
       ? t(language, "greet")
       : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`;
+    if (hasBotAccess) {
+      const [walletsG, contactsG] = await Promise.all([listWallets(c.env, userId), listContacts(c.env, userId)]);
+      welcomeText += "\n\n" + formatGreetQuotaLine(language, walletsG.length, contactsG.length);
+    }
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
