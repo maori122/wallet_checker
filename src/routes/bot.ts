@@ -192,6 +192,8 @@ const I18N = {
     btnDislike: "👎 Дизлайк",
     btnBack: "◀️ Назад",
     btnMainMenu: "🏠 Главное меню",
+    btnPagedPrev: "⬅️ Пред.",
+    btnPagedNext: "След. ➡️",
     btnLangRu: "🇷🇺 Язык: Русский",
     btnLangEn: "🇬🇧 Language: English",
     btnToggleUsd: "💵 USD оценка ON/OFF",
@@ -223,6 +225,8 @@ const I18N = {
     greet: "VOROBEY: Track — private tracking of crypto wallet transactions. Use the buttons below to manage wallets, contacts, and settings.",
     unknown: "I did not understand. Please choose an action from the menu.",
     mainMenu: "Main menu",
+    btnPagedPrev: "⬅️ Prev",
+    btnPagedNext: "Next ➡️",
     walletsTitle: "My wallets",
     contactsTitle: "Known wallets",
     settingsTitle: "Settings",
@@ -527,7 +531,7 @@ type ListPageTitleContext = {
 /** Заголовок, пустая строка, строки. Для «Отслеживаемые» при нескольких страницах: «/ стр.N» (или p.N). */
 function buildListPageBody(title: string, lineChunk: string[], ctx?: ListPageTitleContext): string {
   let head = title;
-  if (ctx && ctx.kind === "w" && ctx.totalPages > 1) {
+  if (ctx && (ctx.kind === "w" || ctx.kind === "cl") && ctx.totalPages > 1) {
     const p = ctx.currentPage0 + 1;
     const part = ctx.language === "ru" ? "стр." : "p.";
     head = `${title} / ${part}${p}`;
@@ -558,7 +562,7 @@ function buildListPaginationInline(
   };
 }
 
-function replyKeyboardForPagedListKind(kind: PagedListKind, language: Language): ReplyMarkup {
+function defaultReplyKeyboardForListKind(kind: PagedListKind, language: Language): ReplyMarkup {
   if (kind === "ar" || kind === "al" || kind === "as") {
     return adminKeyboard(language);
   }
@@ -568,22 +572,39 @@ function replyKeyboardForPagedListKind(kind: PagedListKind, language: Language):
   return sectionKeyboard(language);
 }
 
-/** One message cannot combine inline (pagination) and reply keyboard; API allows a single reply_markup. */
-const REPLY_KEYBOARD_PLACEHOLDER = "\u200B";
-
-async function sendPaginatedListWithReplyKeyboard(
-  token: string,
-  chatId: number,
-  body: string,
-  parseMode: "HTML" | "MarkdownV2" | undefined,
-  inline: InlineReplyMarkup,
-  replyKeyboard: ReplyMarkup
-): Promise<void> {
-  await sendTelegramMessage(token, chatId, body, undefined, parseMode, inline);
-  await sendTelegramMessage(token, chatId, REPLY_KEYBOARD_PLACEHOLDER, replyKeyboard, undefined, undefined, {
-    skipDeletePrevious: true,
-    lastUiTrack: "append"
-  });
+/** Only used when the list is split into several pages. Telegram allows one reply_markup per message — we paginate in the custom keyboard, not with inline. */
+function pagedListReplyKeyboard(language: Language, kind: PagedListKind, totalPages: number): ReplyMarkup {
+  if (totalPages <= 1) {
+    return defaultReplyKeyboardForListKind(kind, language);
+  }
+  const navRow = [t(language, "btnPagedPrev"), t(language, "btnMainMenu"), t(language, "btnPagedNext")];
+  if (kind === "ar" || kind === "al" || kind === "as") {
+    return {
+      keyboard: [
+        [t(language, "btnAdminCreatePromo")],
+        [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
+        navRow
+      ],
+      resize_keyboard: true
+    };
+  }
+  if (kind === "cl" || kind === "dc") {
+    return {
+      keyboard: [
+        [t(language, "btnList"), t(language, "btnAdd"), t(language, "btnDelete")],
+        navRow
+      ],
+      resize_keyboard: true
+    };
+  }
+  return {
+    keyboard: [
+      [t(language, "btnList"), t(language, "btnAdd"), t(language, "btnDelete")],
+      [t(language, "btnBalance"), t(language, "btnHistory")],
+      navRow
+    ],
+    resize_keyboard: true
+  };
 }
 
 async function loadPagedListContent(
@@ -766,6 +787,8 @@ async function sendPagedList(params: {
   kind: PagedListKind;
   replyKeyboard: ReplyMarkup;
   pageSize?: number;
+  /** Zero-based page index (clamped to available range). */
+  page0?: number;
 }): Promise<void> {
   if ((params.kind === "ar" || params.kind === "al" || params.kind === "as") && !params.isAdmin) {
     await sendTelegramMessage(
@@ -787,6 +810,11 @@ async function sendPagedList(params: {
     params.kind
   );
   if (!content) {
+    const pld = { ...(params.session?.payload as Record<string, unknown> | undefined) };
+    delete pld.paged;
+    if (params.session?.flow) {
+      await setBotSession(params.env, params.userId, { flow: params.session.flow, payload: pld });
+    }
     await sendTelegramMessage(
       params.token,
       params.chatId,
@@ -798,6 +826,11 @@ async function sendPagedList(params: {
   const pages = paginateLines(content.lines, pageSize);
   const totalPages = pages.length;
   if (totalPages === 0) {
+    const pld = { ...(params.session?.payload as Record<string, unknown> | undefined) };
+    delete pld.paged;
+    if (params.session?.flow) {
+      await setBotSession(params.env, params.userId, { flow: params.session.flow, payload: pld });
+    }
     await sendTelegramMessage(
       params.token,
       params.chatId,
@@ -806,32 +839,34 @@ async function sendPagedList(params: {
     );
     return;
   }
-  const firstChunk = pages[0] ?? [];
-  const body0 = buildListPageBody(content.title, firstChunk, {
+  const startPage = Math.max(0, Math.min((params.page0 ?? 0) | 0, totalPages - 1));
+  const chunk = pages[startPage] ?? [];
+  const body0 = buildListPageBody(content.title, chunk, {
     kind: params.kind,
-    currentPage0: 0,
+    currentPage0: startPage,
     totalPages,
     language: params.language
   });
-  if (totalPages === 1) {
-    await sendTelegramMessage(
-      params.token,
-      params.chatId,
-      body0,
-      params.replyKeyboard,
-      content.parseMode
-    );
-    return;
-  }
-  const inline = buildListPaginationInline(params.kind, 0, totalPages, params.language);
-  await sendPaginatedListWithReplyKeyboard(
+  const replyMarkup =
+    totalPages > 1
+      ? pagedListReplyKeyboard(params.language, params.kind, totalPages)
+      : params.replyKeyboard;
+  await sendTelegramMessage(
     params.token,
     params.chatId,
     body0,
-    content.parseMode,
-    inline,
-    params.replyKeyboard
+    replyMarkup,
+    content.parseMode
   );
+  if (params.session?.flow) {
+    const pld: Record<string, unknown> = { ...(params.session.payload as Record<string, unknown> | undefined) };
+    if (totalPages > 1) {
+      pld.paged = { kind: params.kind, page0: startPage, total: totalPages };
+    } else {
+      delete pld.paged;
+    }
+    await setBotSession(params.env, params.userId, { flow: params.session.flow, payload: pld });
+  }
 }
 
 async function showWalletsList(
@@ -1101,26 +1136,15 @@ function adminKeyboard(language: Language): ReplyMarkup {
   };
 }
 
-type SendTelegramMessageOptions = {
-  /** Do not remove previously tracked messages (e.g. follow-up to keep list+inline in chat). */
-  skipDeletePrevious?: boolean;
-  /** After send: add message id to tracked list for this chat; default is replace the list with a single new id. */
-  lastUiTrack?: "replace" | "append";
-};
-
 async function sendTelegramMessage(
   token: string,
   chatId: number,
   text: string,
   replyMarkup?: ReplyMarkup,
   parseMode?: "HTML" | "MarkdownV2",
-  inlineKeyboard?: InlineReplyMarkup,
-  options?: SendTelegramMessageOptions
+  inlineKeyboard?: InlineReplyMarkup
 ): Promise<Response> {
-  const skipDeletePrevious = options?.skipDeletePrevious === true;
-  const lastUiTrack = options?.lastUiTrack ?? "replace";
-
-  if (!skipDeletePrevious && (replyMarkup || inlineKeyboard)) {
+  if (replyMarkup || inlineKeyboard) {
     const previousIds = lastUiMessageIdsByChat.get(chatId);
     if (previousIds?.length) {
       for (const mid of previousIds) {
@@ -1156,12 +1180,7 @@ async function sendTelegramMessage(
       const data = (await response.clone().json()) as { result?: { message_id?: number } };
       const sentMessageId = data.result?.message_id;
       if (typeof sentMessageId === "number") {
-        if (lastUiTrack === "append") {
-          const cur = lastUiMessageIdsByChat.get(chatId) ?? [];
-          lastUiMessageIdsByChat.set(chatId, [...cur, sentMessageId]);
-        } else {
-          lastUiMessageIdsByChat.set(chatId, [sentMessageId]);
-        }
+        lastUiMessageIdsByChat.set(chatId, [sentMessageId]);
       }
     } catch {
       // Ignore tracking parse errors; message still sent.
@@ -1391,14 +1410,18 @@ bot.post("/telegram", async (c) => {
       if (typeof msgId === "number") {
         const res = await editTelegramMessage(token, chatId, msgId, body, inline, content.parseMode);
         if (!res.ok) {
-          await sendPaginatedListWithReplyKeyboard(
+          await sendPagedList({
+            env: c.env,
             token,
             chatId,
-            body,
-            content.parseMode,
-            inline,
-            replyKeyboardForPagedListKind(k, language)
-          );
+            userId,
+            language,
+            isAdmin,
+            session,
+            kind: k,
+            replyKeyboard: defaultReplyKeyboardForListKind(k, language),
+            page0: p
+          });
         }
       }
       await answerCallbackQuery(token, cq.id);
@@ -1494,6 +1517,28 @@ bot.post("/telegram", async (c) => {
       mainKeyboard(language, isAdmin, false)
     );
     return c.json({ ok: true });
+  }
+
+  if (text && (isBtn(text, "btnPagedPrev") || isBtn(text, "btnPagedNext"))) {
+    const latest = await getBotSession(c.env, userId);
+    const paged = latest?.payload?.paged as { kind: PagedListKind; page0: number; total: number } | undefined;
+    if (paged && paged.total > 1) {
+      const delta = isBtn(text, "btnPagedPrev") ? -1 : 1;
+      const next0 = Math.max(0, Math.min(paged.total - 1, paged.page0 + delta));
+      await sendPagedList({
+        env: c.env,
+        token: c.env.TELEGRAM_BOT_TOKEN,
+        chatId: message.chat.id,
+        userId,
+        language,
+        isAdmin,
+        session: latest,
+        kind: paged.kind,
+        replyKeyboard: defaultReplyKeyboardForListKind(paged.kind, language),
+        page0: next0
+      });
+      return c.json({ ok: true });
+    }
   }
 
   if (canAutoAddWalletFromMessage(session)) {
