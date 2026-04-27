@@ -360,7 +360,8 @@ const I18N = {
 } as const;
 
 const bot = new Hono<{ Bindings: Env; Variables: Variables }>();
-const lastUiMessageByChat = new Map<number, number>();
+/** Tracked message ids to delete on the next UI message (one chat may have e.g. list + keyboard anchor). */
+const lastUiMessageIdsByChat = new Map<number, number[]>();
 
 function t(language: Language, key: keyof (typeof I18N)["ru"]): string {
   return I18N[language][key];
@@ -555,6 +556,34 @@ function buildListPaginationInline(
       ]
     ]
   };
+}
+
+function replyKeyboardForPagedListKind(kind: PagedListKind, language: Language): ReplyMarkup {
+  if (kind === "ar" || kind === "al" || kind === "as") {
+    return adminKeyboard(language);
+  }
+  if (kind === "cl" || kind === "dc") {
+    return sectionKeyboard(language, "contacts");
+  }
+  return sectionKeyboard(language);
+}
+
+/** One message cannot combine inline (pagination) and reply keyboard; API allows a single reply_markup. */
+const REPLY_KEYBOARD_PLACEHOLDER = "\u200B";
+
+async function sendPaginatedListWithReplyKeyboard(
+  token: string,
+  chatId: number,
+  body: string,
+  parseMode: "HTML" | "MarkdownV2" | undefined,
+  inline: InlineReplyMarkup,
+  replyKeyboard: ReplyMarkup
+): Promise<void> {
+  await sendTelegramMessage(token, chatId, body, undefined, parseMode, inline);
+  await sendTelegramMessage(token, chatId, REPLY_KEYBOARD_PLACEHOLDER, replyKeyboard, undefined, undefined, {
+    skipDeletePrevious: true,
+    lastUiTrack: "append"
+  });
 }
 
 async function loadPagedListContent(
@@ -795,13 +824,13 @@ async function sendPagedList(params: {
     return;
   }
   const inline = buildListPaginationInline(params.kind, 0, totalPages, params.language);
-  await sendTelegramMessage(
+  await sendPaginatedListWithReplyKeyboard(
     params.token,
     params.chatId,
     body0,
-    undefined,
     content.parseMode,
-    inline
+    inline,
+    params.replyKeyboard
   );
 }
 
@@ -1072,18 +1101,32 @@ function adminKeyboard(language: Language): ReplyMarkup {
   };
 }
 
+type SendTelegramMessageOptions = {
+  /** Do not remove previously tracked messages (e.g. follow-up to keep list+inline in chat). */
+  skipDeletePrevious?: boolean;
+  /** After send: add message id to tracked list for this chat; default is replace the list with a single new id. */
+  lastUiTrack?: "replace" | "append";
+};
+
 async function sendTelegramMessage(
   token: string,
   chatId: number,
   text: string,
   replyMarkup?: ReplyMarkup,
   parseMode?: "HTML" | "MarkdownV2",
-  inlineKeyboard?: InlineReplyMarkup
+  inlineKeyboard?: InlineReplyMarkup,
+  options?: SendTelegramMessageOptions
 ): Promise<Response> {
-  if (replyMarkup || inlineKeyboard) {
-    const previousUiMessageId = lastUiMessageByChat.get(chatId);
-    if (previousUiMessageId) {
-      await deleteTelegramMessageWithRetry(token, chatId, previousUiMessageId);
+  const skipDeletePrevious = options?.skipDeletePrevious === true;
+  const lastUiTrack = options?.lastUiTrack ?? "replace";
+
+  if (!skipDeletePrevious && (replyMarkup || inlineKeyboard)) {
+    const previousIds = lastUiMessageIdsByChat.get(chatId);
+    if (previousIds?.length) {
+      for (const mid of previousIds) {
+        await deleteTelegramMessageWithRetry(token, chatId, mid);
+      }
+      lastUiMessageIdsByChat.delete(chatId);
     }
   }
 
@@ -1113,7 +1156,12 @@ async function sendTelegramMessage(
       const data = (await response.clone().json()) as { result?: { message_id?: number } };
       const sentMessageId = data.result?.message_id;
       if (typeof sentMessageId === "number") {
-        lastUiMessageByChat.set(chatId, sentMessageId);
+        if (lastUiTrack === "append") {
+          const cur = lastUiMessageIdsByChat.get(chatId) ?? [];
+          lastUiMessageIdsByChat.set(chatId, [...cur, sentMessageId]);
+        } else {
+          lastUiMessageIdsByChat.set(chatId, [sentMessageId]);
+        }
       }
     } catch {
       // Ignore tracking parse errors; message still sent.
@@ -1343,7 +1391,14 @@ bot.post("/telegram", async (c) => {
       if (typeof msgId === "number") {
         const res = await editTelegramMessage(token, chatId, msgId, body, inline, content.parseMode);
         if (!res.ok) {
-          await sendTelegramMessage(token, chatId, body, undefined, content.parseMode, inline);
+          await sendPaginatedListWithReplyKeyboard(
+            token,
+            chatId,
+            body,
+            content.parseMode,
+            inline,
+            replyKeyboardForPagedListKind(k, language)
+          );
         }
       }
       await answerCallbackQuery(token, cq.id);
