@@ -126,6 +126,8 @@ export type WalletReputationEntry = {
   updatedAt: string;
 };
 
+export type PaymentProductType = "subscription" | "wallet_slots_10";
+
 export type SubscriptionPaymentRequest = {
   id: string;
   userId: string;
@@ -135,6 +137,7 @@ export type SubscriptionPaymentRequest = {
   amountText: string;
   status: "pending" | "paid" | "expired";
   durationDays: number;
+  productType: PaymentProductType;
   txid: string | null;
   createdAt: string;
   expiresAt: string;
@@ -183,7 +186,8 @@ async function mirrorWalletToContacts(
   const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
     .bind(userId)
     .first<{ count: number }>();
-  if ((countRow?.count ?? 0) >= MAX_CONTACTS) {
+  const contactLimit = await getEffectiveContactLimit(env, userId);
+  if ((countRow?.count ?? 0) >= contactLimit) {
     return;
   }
 
@@ -216,6 +220,55 @@ async function ensureUserRow(env: Env, userId: string): Promise<void> {
   )
     .bind(userId)
     .run();
+}
+
+export async function getUserSlotBonuses(
+  env: Env,
+  userId: string
+): Promise<{ extraWallet: number; extraContact: number }> {
+  await ensureUserRow(env, userId);
+  const row = await env.DB
+    .prepare("SELECT extra_wallet_slots, extra_contact_slots FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ extra_wallet_slots: number | null; extra_contact_slots: number | null }>();
+  return {
+    extraWallet: Math.max(0, row?.extra_wallet_slots ?? 0),
+    extraContact: Math.max(0, row?.extra_contact_slots ?? 0)
+  };
+}
+
+export async function getEffectiveWalletLimit(env: Env, userId: string): Promise<number> {
+  const b = await getUserSlotBonuses(env, userId);
+  return MAX_WALLETS + b.extraWallet;
+}
+
+export async function getEffectiveContactLimit(env: Env, userId: string): Promise<number> {
+  const b = await getUserSlotBonuses(env, userId);
+  return MAX_CONTACTS + b.extraContact;
+}
+
+export async function addExtraWalletSlots(env: Env, userId: string, delta: number): Promise<number> {
+  if (delta <= 0) {
+    return (await getUserSlotBonuses(env, userId)).extraWallet;
+  }
+  await ensureUserRow(env, userId);
+  await env.DB
+    .prepare(`UPDATE users SET extra_wallet_slots = COALESCE(extra_wallet_slots, 0) + ? WHERE id = ?`)
+    .bind(delta, userId)
+    .run();
+  return (await getUserSlotBonuses(env, userId)).extraWallet;
+}
+
+export async function addExtraContactSlots(env: Env, userId: string, delta: number): Promise<number> {
+  if (delta <= 0) {
+    return (await getUserSlotBonuses(env, userId)).extraContact;
+  }
+  await ensureUserRow(env, userId);
+  await env.DB
+    .prepare(`UPDATE users SET extra_contact_slots = COALESCE(extra_contact_slots, 0) + ? WHERE id = ?`)
+    .bind(delta, userId)
+    .run();
+  return (await getUserSlotBonuses(env, userId)).extraContact;
 }
 
 async function ensureSettingsRow(env: Env, userId: string): Promise<void> {
@@ -376,7 +429,7 @@ export async function listWallets(env: Env, userId: string): Promise<WalletItem[
       AND c.network = w.network
       AND c.address_hash = w.address_hash
      WHERE w.user_id = ?
-     ORDER BY w.created_at DESC`
+     ORDER BY w.created_at ASC`
   )
     .bind(userId)
     .all<{
@@ -422,11 +475,15 @@ export async function createWallet(
   }
 ): Promise<void> {
   await ensureUserRow(env, userId);
-  const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
-    .bind(userId)
-    .first<{ count: number }>();
-  if ((countRow?.count ?? 0) >= MAX_WALLETS) {
-    throw new Error(`Wallet limit reached: ${MAX_WALLETS}`);
+  const [countRow, limit] = await Promise.all([
+    env.DB
+      .prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
+      .bind(userId)
+      .first<{ count: number }>(),
+    getEffectiveWalletLimit(env, userId)
+  ]);
+  if ((countRow?.count ?? 0) >= limit) {
+    throw new Error(`Wallet limit reached: ${limit}`);
   }
 
   const normalized = normalizeAddress(payload.network, payload.address);
@@ -496,7 +553,7 @@ export async function deleteWallet(env: Env, userId: string, walletId: string): 
 
 export async function listContacts(env: Env, userId: string): Promise<ContactItem[]> {
   const result = await env.DB.prepare(
-    "SELECT id, network, address_ciphertext, label_ciphertext, created_at FROM contacts WHERE user_id = ? ORDER BY created_at DESC"
+    "SELECT id, network, address_ciphertext, label_ciphertext, created_at FROM contacts WHERE user_id = ? ORDER BY created_at ASC"
   )
     .bind(userId)
     .all<{
@@ -524,11 +581,15 @@ export async function createContact(
   payload: { network: "btc" | "eth" | "bsc" | "trc20"; address: string; label: string }
 ): Promise<void> {
   await ensureUserRow(env, userId);
-  const countRow = await env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
-    .bind(userId)
-    .first<{ count: number }>();
-  if ((countRow?.count ?? 0) >= MAX_CONTACTS) {
-    throw new Error(`Contact limit reached: ${MAX_CONTACTS}`);
+  const [countRow, contactLimit] = await Promise.all([
+    env.DB
+      .prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
+      .bind(userId)
+      .first<{ count: number }>(),
+    getEffectiveContactLimit(env, userId)
+  ]);
+  if ((countRow?.count ?? 0) >= contactLimit) {
+    throw new Error(`Contact limit reached: ${contactLimit}`);
   }
 
   const normalized = normalizeAddress(payload.network, payload.address);
@@ -667,20 +728,23 @@ export async function updateSettings(
 
 export async function getUsageSummary(env: Env, userId: string): Promise<UsageSummary> {
   await ensureUserRow(env, userId);
-  const [walletCountRow, contactCountRow] = await Promise.all([
-    env.DB.prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
+  const [walletCountRow, contactCountRow, slotBonuses] = await Promise.all([
+    env.DB
+      .prepare("SELECT COUNT(1) AS count FROM wallets WHERE user_id = ?")
       .bind(userId)
       .first<{ count: number }>(),
-    env.DB.prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
+    env.DB
+      .prepare("SELECT COUNT(1) AS count FROM contacts WHERE user_id = ?")
       .bind(userId)
-      .first<{ count: number }>()
+      .first<{ count: number }>(),
+    getUserSlotBonuses(env, userId)
   ]);
 
   return {
     walletCount: walletCountRow?.count ?? 0,
-    walletLimit: MAX_WALLETS,
+    walletLimit: MAX_WALLETS + slotBonuses.extraWallet,
     contactCount: contactCountRow?.count ?? 0,
-    contactLimit: MAX_CONTACTS
+    contactLimit: MAX_CONTACTS + slotBonuses.extraContact
   };
 }
 
@@ -1129,8 +1193,10 @@ export async function createSubscriptionPaymentRequest(
     amountText: string;
     durationDays: number;
     expiresAt: string;
+    productType?: PaymentProductType;
   }
 ): Promise<SubscriptionPaymentRequest> {
+  const productType: PaymentProductType = payload.productType ?? "subscription";
   await ensureSubscriptionRow(env, payload.userId);
   await env.DB.prepare(
     `INSERT INTO subscription_payments (
@@ -1142,6 +1208,7 @@ export async function createSubscriptionPaymentRequest(
       amount_text,
       status,
       duration_days,
+      product_type,
       txid,
       created_at,
       expires_at,
@@ -1149,7 +1216,7 @@ export async function createSubscriptionPaymentRequest(
       updated_at
     ) VALUES (
       lower(hex(randomblob(16))),
-      ?, ?, ?, ?, ?, 'pending', ?, NULL, CURRENT_TIMESTAMP, ?, NULL, CURRENT_TIMESTAMP
+      ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, CURRENT_TIMESTAMP, ?, NULL, CURRENT_TIMESTAMP
     )`
   )
     .bind(
@@ -1159,19 +1226,20 @@ export async function createSubscriptionPaymentRequest(
       payload.payAddress,
       payload.amountText,
       payload.durationDays,
+      productType,
       payload.expiresAt
     )
     .run();
 
   const created = await env.DB.prepare(
-    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, product_type, txid,
             created_at, expires_at, paid_at, updated_at
      FROM subscription_payments
-     WHERE user_id = ? AND status = 'pending'
+     WHERE user_id = ? AND status = 'pending' AND product_type = ?
      ORDER BY created_at DESC
      LIMIT 1`
   )
-    .bind(payload.userId)
+    .bind(payload.userId, productType)
     .first<{
       id: string;
       user_id: string;
@@ -1181,6 +1249,7 @@ export async function createSubscriptionPaymentRequest(
       amount_text: string;
       status: "pending" | "paid" | "expired";
       duration_days: number;
+      product_type: string;
       txid: string | null;
       created_at: string;
       expires_at: string;
@@ -1200,6 +1269,7 @@ export async function createSubscriptionPaymentRequest(
     amountText: created.amount_text,
     status: created.status,
     durationDays: created.duration_days,
+    productType: (created.product_type as PaymentProductType) ?? "subscription",
     txid: created.txid,
     createdAt: created.created_at,
     expiresAt: created.expires_at,
@@ -1208,15 +1278,49 @@ export async function createSubscriptionPaymentRequest(
   };
 }
 
+function mapPaymentRequestRow(row: {
+  id: string;
+  user_id: string;
+  network: "bsc" | "trc20";
+  asset: "USDT";
+  pay_address: string;
+  amount_text: string;
+  status: "pending" | "paid" | "expired";
+  duration_days: number;
+  product_type: string;
+  txid: string | null;
+  created_at: string;
+  expires_at: string;
+  paid_at: string | null;
+  updated_at: string;
+}): SubscriptionPaymentRequest {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    network: row.network,
+    asset: row.asset,
+    payAddress: row.pay_address,
+    amountText: row.amount_text,
+    status: row.status,
+    durationDays: row.duration_days,
+    productType: (row.product_type as PaymentProductType) ?? "subscription",
+    txid: row.txid,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    paidAt: row.paid_at,
+    updatedAt: row.updated_at
+  };
+}
+
 export async function getActiveSubscriptionPaymentRequest(
   env: Env,
   userId: string
 ): Promise<SubscriptionPaymentRequest | null> {
   const row = await env.DB.prepare(
-    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, product_type, txid,
             created_at, expires_at, paid_at, updated_at
      FROM subscription_payments
-     WHERE user_id = ? AND status = 'pending'
+     WHERE user_id = ? AND status = 'pending' AND product_type = 'subscription'
      ORDER BY created_at DESC
      LIMIT 1`
   )
@@ -1230,6 +1334,7 @@ export async function getActiveSubscriptionPaymentRequest(
       amount_text: string;
       status: "pending" | "paid" | "expired";
       duration_days: number;
+      product_type: string;
       txid: string | null;
       created_at: string;
       expires_at: string;
@@ -1239,21 +1344,42 @@ export async function getActiveSubscriptionPaymentRequest(
   if (!row) {
     return null;
   }
-  return {
-    id: row.id,
-    userId: row.user_id,
-    network: row.network,
-    asset: row.asset,
-    payAddress: row.pay_address,
-    amountText: row.amount_text,
-    status: row.status,
-    durationDays: row.duration_days,
-    txid: row.txid,
-    createdAt: row.created_at,
-    expiresAt: row.expires_at,
-    paidAt: row.paid_at,
-    updatedAt: row.updated_at
-  };
+  return mapPaymentRequestRow(row);
+}
+
+export async function getActiveSlotPackPaymentRequest(
+  env: Env,
+  userId: string
+): Promise<SubscriptionPaymentRequest | null> {
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, product_type, txid,
+            created_at, expires_at, paid_at, updated_at
+     FROM subscription_payments
+     WHERE user_id = ? AND status = 'pending' AND product_type = 'wallet_slots_10'
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(userId)
+    .first<{
+      id: string;
+      user_id: string;
+      network: "bsc" | "trc20";
+      asset: "USDT";
+      pay_address: string;
+      amount_text: string;
+      status: "pending" | "paid" | "expired";
+      duration_days: number;
+      product_type: string;
+      txid: string | null;
+      created_at: string;
+      expires_at: string;
+      paid_at: string | null;
+      updated_at: string;
+    }>();
+  if (!row) {
+    return null;
+  }
+  return mapPaymentRequestRow(row);
 }
 
 export async function listPendingSubscriptionPayments(
@@ -1263,13 +1389,13 @@ export async function listPendingSubscriptionPayments(
 ): Promise<SubscriptionPaymentRequest[]> {
   const query =
     typeof userId === "string"
-      ? `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+      ? `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, product_type, txid,
                 created_at, expires_at, paid_at, updated_at
          FROM subscription_payments
          WHERE status = 'pending' AND user_id = ?
          ORDER BY created_at ASC
          LIMIT ?`
-      : `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, txid,
+      : `SELECT id, user_id, network, asset, pay_address, amount_text, status, duration_days, product_type, txid,
                 created_at, expires_at, paid_at, updated_at
          FROM subscription_payments
          WHERE status = 'pending'
@@ -1287,6 +1413,7 @@ export async function listPendingSubscriptionPayments(
     amount_text: string;
     status: "pending" | "paid" | "expired";
     duration_days: number;
+    product_type: string;
     txid: string | null;
     created_at: string;
     expires_at: string;
@@ -1294,21 +1421,7 @@ export async function listPendingSubscriptionPayments(
     updated_at: string;
   }>();
 
-  return rows.results.map((row) => ({
-    id: row.id,
-    userId: row.user_id,
-    network: row.network,
-    asset: row.asset,
-    payAddress: row.pay_address,
-    amountText: row.amount_text,
-    status: row.status,
-    durationDays: row.duration_days,
-    txid: row.txid,
-    createdAt: row.created_at,
-    expiresAt: row.expires_at,
-    paidAt: row.paid_at,
-    updatedAt: row.updated_at
-  }));
+  return rows.results.map((row) => mapPaymentRequestRow(row));
 }
 
 export async function markSubscriptionPaymentExpired(env: Env, paymentId: string): Promise<void> {

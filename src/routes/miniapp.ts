@@ -136,6 +136,9 @@ function pageHtml(): string {
               <button class="btn primary" id="pay-create">Create invoice</button>
               <button class="btn ok" id="pay-check">Check payment</button>
             </div>
+            <h4 id="slot-pack-heading" style="margin:0.75rem 0 0">+10 slots</h4>
+            <div class="row"><label id="pay-slots-network-label">Network</label><select id="pay-slots-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
+            <div class="btns"><button class="btn primary" id="pay-slots-create" type="button">Create</button></div>
             <div id="pay-info" class="muted"></div>
           </div>
         </div>
@@ -187,6 +190,15 @@ function pageHtml(): string {
         </div>
         <div class="card"><h3 id="admin-link-title">Link audit</h3><div id="admin-link-list"></div></div>
         <div class="card"><h3 id="admin-reputation-title">Wallet reputation</h3><div id="admin-reputation-list"></div></div>
+        <div class="card">
+          <h3 id="admin-slots-title">User slot bonuses</h3>
+          <div class="grid">
+            <div class="row"><label id="admin-slots-user-label">Telegram user id</label><input id="admin-slots-user" inputmode="numeric" placeholder="123456789" /></div>
+            <div class="row"><label id="admin-slots-w-label">+Wallet slots</label><input id="admin-slots-w" type="number" min="0" value="0" /></div>
+            <div class="row"><label id="admin-slots-c-label">+Contact slots</label><input id="admin-slots-c" type="number" min="0" value="0" /></div>
+            <div class="btns"><button class="btn primary" id="admin-slots-apply" type="button">Apply</button></div>
+          </div>
+        </div>
       </section>
     </div>
 
@@ -198,7 +210,7 @@ function pageHtml(): string {
       const tgLanguageCode = String(tg?.initDataUnsafe?.user?.language_code || "").toLowerCase();
       const initialLang = tgLanguageCode.startsWith("ru") ? "ru" : "en";
 
-      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, summary: null, lang: initialLang };
+      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, activeSlotPack: null, summary: null, lang: initialLang };
       const $ = (id) => document.getElementById(id);
       const L10N = {
         ru: {
@@ -228,6 +240,16 @@ function pageHtml(): string {
           network: "Сеть",
           createInvoice: "Создать счет",
           checkPayment: "Проверить оплату",
+          slotPackHeading: "+10 слотов (10 USDT)",
+          slotPackCreate: "Счёт +10 слотов",
+          pendingSubInvoice: "Подписка",
+          pendingSlotInvoice: "Пакет +10 слотов",
+          adminSlotsTitle: "Доп. слоты пользователю",
+          adminSlotsUser: "Telegram user id",
+          adminSlotsW: "+Слоты кошельков",
+          adminSlotsC: "+Слоты контактов",
+          adminSlotsApply: "Начислить",
+          adminSlotsOk: "Слоты обновлены.",
           promoCode: "Промокод",
           activatePromo: "Активировать промокод",
           settings: "Настройки",
@@ -319,6 +341,16 @@ function pageHtml(): string {
           network: "Network",
           createInvoice: "Create invoice",
           checkPayment: "Check payment",
+          slotPackHeading: "+10 slots (10 USDT)",
+          slotPackCreate: "Create slot invoice",
+          pendingSubInvoice: "Subscription",
+          pendingSlotInvoice: "Slot pack +10",
+          adminSlotsTitle: "User slot bonuses",
+          adminSlotsUser: "Telegram user id",
+          adminSlotsW: "+Wallet slots",
+          adminSlotsC: "+Contact slots",
+          adminSlotsApply: "Apply",
+          adminSlotsOk: "Slot bonuses updated.",
           promoCode: "Promo code",
           activatePromo: "Activate promo",
           settings: "Settings",
@@ -425,6 +457,12 @@ function pageHtml(): string {
         $("pay-network-label").textContent = tr("network");
         $("pay-create").textContent = tr("createInvoice");
         $("pay-check").textContent = tr("checkPayment");
+        const slotHead = $("slot-pack-heading");
+        if (slotHead) slotHead.textContent = tr("slotPackHeading");
+        const paySlotsNet = $("pay-slots-network-label");
+        if (paySlotsNet) paySlotsNet.textContent = tr("network");
+        const paySlotsBtn = $("pay-slots-create");
+        if (paySlotsBtn) paySlotsBtn.textContent = tr("slotPackCreate");
         $("promo-title").textContent = tr("promoCode");
         $("promo-code-label").textContent = tr("promoCode");
         $("promo-activate").textContent = tr("activatePromo");
@@ -459,6 +497,16 @@ function pageHtml(): string {
         if (linkTitle) linkTitle.textContent = tr("linkAudit");
         const reputationTitle = $("admin-reputation-title");
         if (reputationTitle) reputationTitle.textContent = tr("walletReputation");
+        const adminSlotsTitle = $("admin-slots-title");
+        if (adminSlotsTitle) adminSlotsTitle.textContent = tr("adminSlotsTitle");
+        const lUser = $("admin-slots-user-label");
+        if (lUser) lUser.textContent = tr("adminSlotsUser");
+        const lW = $("admin-slots-w-label");
+        if (lW) lW.textContent = tr("adminSlotsW");
+        const lC = $("admin-slots-c-label");
+        if (lC) lC.textContent = tr("adminSlotsC");
+        const adminSlotsBtn = $("admin-slots-apply");
+        if (adminSlotsBtn) adminSlotsBtn.textContent = tr("adminSlotsApply");
       }
       document.documentElement.lang = state.lang;
       applyLocaleStatic();
@@ -669,6 +717,7 @@ function pageHtml(): string {
         const data = await api("/subscription");
         state.subscription = data.subscription;
         state.payment = data.activePayment;
+        state.activeSlotPack = data.activeSlotPack;
         const s = data.subscription;
         $("cabinet-subscription").innerHTML =
           "<div><b>" + tr("plan") + ":</b> <code>" +
@@ -680,18 +729,37 @@ function pageHtml(): string {
           "</div><div><b>" + tr("promoActivations") + ":</b> " +
           s.promoActivations +
           "</div>";
+        const blocks = [];
         if (data.activePayment) {
-          $("pay-info").innerHTML =
-            tr("pendingInvoice") + ": <b>" +
-            data.activePayment.amountText +
-            " " +
-            data.activePayment.asset +
-            "</b><div class='copy-block'>" + tr("address") + ":<span class='mono addr-pill'>" +
-            data.activePayment.payAddress +
-            "</span><button class='btn ghost copy-btn' data-copy='" +
-            data.activePayment.payAddress +
-            "'>" + tr("copyAddress") + "</button></div>" + tr("expires") + ": " +
-            fmtDate(data.activePayment.expiresAt);
+          blocks.push(
+            "<div><b>" + tr("pendingSubInvoice") + "</b> — " + tr("pendingInvoice").toLowerCase() + ": <b>" +
+              data.activePayment.amountText +
+              " " +
+              data.activePayment.asset +
+              "</b><div class='copy-block'>" + tr("address") + ":<span class='mono addr-pill'>" +
+              data.activePayment.payAddress +
+              "</span><button class='btn ghost copy-btn' data-copy='" +
+              data.activePayment.payAddress +
+              "'>" + tr("copyAddress") + "</button></div>" + tr("expires") + ": " +
+              fmtDate(data.activePayment.expiresAt) + "</div>"
+          );
+        }
+        if (data.activeSlotPack) {
+          blocks.push(
+            "<div><b>" + tr("pendingSlotInvoice") + "</b> — " + tr("pendingInvoice").toLowerCase() + ": <b>" +
+              data.activeSlotPack.amountText +
+              " " +
+              data.activeSlotPack.asset +
+              "</b><div class='copy-block'>" + tr("address") + ":<span class='mono addr-pill'>" +
+              data.activeSlotPack.payAddress +
+              "</span><button class='btn ghost copy-btn' data-copy='" +
+              data.activeSlotPack.payAddress +
+              "'>" + tr("copyAddress") + "</button></div>" + tr("expires") + ": " +
+              fmtDate(data.activeSlotPack.expiresAt) + "</div>"
+          );
+        }
+        if (blocks.length) {
+          $("pay-info").innerHTML = blocks.join("<hr style='border:none;border-top:1px solid #2a3142;margin:0.5rem 0' />");
         } else {
           $("pay-info").textContent = tr("noActiveInvoice");
         }
@@ -838,19 +906,18 @@ function pageHtml(): string {
       $("pay-create").addEventListener("click", async () => {
         try {
           const data = await api("/subscription/invoice", "POST", { network: $("pay-network").value });
-          const inv = data.invoice;
-          $("pay-info").innerHTML =
-            tr("pendingInvoice") + ": <b>" +
-            inv.amountText +
-            " " +
-            inv.asset +
-            "</b><div class='copy-block'>" + tr("address") + ":<span class='mono addr-pill'>" +
-            inv.payAddress +
-            "</span><button class='btn ghost copy-btn' data-copy='" +
-            inv.payAddress +
-            "'>" + tr("copyAddress") + "</button></div>" + tr("expires") + ": " +
-            fmtDate(inv.expiresAt);
           toast(tr("invoiceCreated"));
+          await loadSubscription();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("pay-slots-create")?.addEventListener("click", async () => {
+        try {
+          const data = await api("/subscription/slots/invoice", "POST", { network: $("pay-slots-network").value });
+          if (data.invoice) {
+            toast(tr("invoiceCreated"));
+            await loadSubscription();
+          }
         } catch (e) { toast(e.message || "Error", true); }
       });
 
@@ -911,6 +978,22 @@ function pageHtml(): string {
           $("admin-stop-address").value = "";
           toast(tr("removedStopOk"));
           await loadAdmin();
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("admin-slots-apply")?.addEventListener("click", async () => {
+        try {
+          const targetUserId = $("admin-slots-user").value.trim();
+          if (!/^\d+$/.test(targetUserId)) throw new Error("Invalid user id");
+          await api("/admin/slot-bonuses", "POST", {
+            targetUserId,
+            extraWalletSlots: Number($("admin-slots-w").value || 0),
+            extraContactSlots: Number($("admin-slots-c").value || 0)
+          });
+          toast(tr("adminSlotsOk"));
+          $("admin-slots-user").value = "";
+          $("admin-slots-w").value = "0";
+          $("admin-slots-c").value = "0";
         } catch (e) { toast(e.message || "Error", true); }
       });
 

@@ -13,8 +13,12 @@ import {
   getActiveSubscriptionPaymentRequest,
   getSubscriptionInfo,
   getUserReputation,
+  getUsageSummary,
   getWalletReputationByAddress,
   getSettings,
+  getActiveSlotPackPaymentRequest,
+  addExtraContactSlots,
+  addExtraWalletSlots,
   listLinkAuditEntries,
   listStoppedWallets,
   listTopWalletReputations,
@@ -30,11 +34,11 @@ import {
 } from "../lib/db";
 import { getWalletBalances } from "../lib/wallet-insights";
 import {
+  createSlotPackPaymentInvoice,
   createSubscriptionPaymentInvoice,
   processSubscriptionPayments
 } from "../lib/subscription-payments";
 import { detectAddressNetworks } from "../lib/validation";
-import { MAX_CONTACTS, MAX_WALLETS } from "../lib/constants";
 
 type Variables = {
   userId: string;
@@ -114,8 +118,8 @@ const I18N = {
     invalidAddress: "Некорректный адрес. Проверьте формат и попробуйте снова.",
     walletAlreadyExists: "Этот кошелек уже добавлен в этой сети.",
     contactAlreadyExists: "Этот знакомый кошелек уже добавлен в этой сети.",
-    walletLimitReached: "Достигнут лимит кошельков (10).",
-    contactLimitReached: "Достигнут лимит знакомых кошельков (50).",
+    walletLimitReached: "Достигнут лимит кошельков ({max}).",
+    contactLimitReached: "Достигнут лимит знакомых кошельков ({max}).",
     enterNumeric: "Введите число, например 0.01",
     settingsSaved: "Настройки сохранены.",
     testNotification: "Тестовое уведомление: бот подключен.",
@@ -216,6 +220,11 @@ const I18N = {
     btnAdminCreatePromo: "🎟️ Создать промокод",
     btnActivatePromo: "🎟️ Активировать промокод",
     btnPaySubscription: "💳 Оплатить подписку",
+    btnPaySlotPack: "➕ +10 слотов ($10)",
+    slotPackPaymentChooseNetwork: "Выберите сеть (10 USDT = +10 слотов для отслеживаемых кошельков).",
+    slotPackInvoiceTitle: "Пакет: +10 слотов",
+    adminSlotsHelp:
+      "Команда слотов: <code>SLOTS &lt;telegram_id&gt; &lt;+кош&gt; &lt;+контакты&gt;</code>\nПример: <code>SLOTS 123456789 10 0</code> — +10 кошельков, контакты без изменений.",
     btnCheckPayment: "✅ Проверить оплату",
     askBtc: "Введите порог BTC (например, 0.001).",
     askEth: "Введите порог ETH (например, 0.01).",
@@ -259,8 +268,8 @@ const I18N = {
     invalidAddress: "Invalid address. Please verify and try again.",
     walletAlreadyExists: "This wallet is already added in this network.",
     contactAlreadyExists: "This known wallet is already added in this network.",
-    walletLimitReached: "Wallet limit reached (10).",
-    contactLimitReached: "Known wallet limit reached (50).",
+    walletLimitReached: "Wallet limit reached ({max}).",
+    contactLimitReached: "Known wallet limit reached ({max}).",
     enterNumeric: "Enter a number, for example 0.01",
     settingsSaved: "Settings saved.",
     testNotification: "Test notification: bot is connected.",
@@ -359,6 +368,11 @@ const I18N = {
     btnAdminCreatePromo: "🎟️ Create promo code",
     btnActivatePromo: "🎟️ Activate promo code",
     btnPaySubscription: "💳 Pay subscription",
+    btnPaySlotPack: "➕ +10 slots ($10)",
+    slotPackPaymentChooseNetwork: "Choose a network (10 USDT = +10 wallet slots).",
+    slotPackInvoiceTitle: "Pack: +10 slots",
+    adminSlotsHelp:
+      "Slot command: <code>SLOTS &lt;telegram_id&gt; &lt;+wallets&gt; &lt;+contacts&gt;</code>\nExample: <code>SLOTS 123456789 10 0</code>",
     btnCheckPayment: "✅ Check payment",
     askBtc: "Enter BTC threshold (example: 0.001).",
     askEth: "Enter ETH threshold (example: 0.01).",
@@ -408,6 +422,7 @@ function isSectionActionButton(input: string): boolean {
 function isCabinetActionButton(input: string): boolean {
   return (
     isBtn(input, "btnPaySubscription") ||
+    isBtn(input, "btnPaySlotPack") ||
     isBtn(input, "btnCheckPayment") ||
     isBtn(input, "btnActivatePromo")
   );
@@ -623,39 +638,45 @@ function pagedListReplyKeyboard(language: Language, kind: PagedListKind, totalPa
   };
 }
 
-function quotaPlainWallets(language: Language, used: number): string {
-  const free = Math.max(0, MAX_WALLETS - used);
+function quotaPlainWallets(language: Language, used: number, max: number): string {
+  const free = Math.max(0, max - used);
   return t(language, "listQuotaWallets")
     .replace("{used}", String(used))
-    .replace("{max}", String(MAX_WALLETS))
+    .replace("{max}", String(max))
     .replace("{free}", String(free));
 }
 
-function quotaPlainContacts(language: Language, used: number): string {
-  const free = Math.max(0, MAX_CONTACTS - used);
+function quotaPlainContacts(language: Language, used: number, max: number): string {
+  const free = Math.max(0, max - used);
   return t(language, "listQuotaContacts")
     .replace("{used}", String(used))
-    .replace("{max}", String(MAX_CONTACTS))
+    .replace("{max}", String(max))
     .replace("{free}", String(free));
 }
 
-function quotaWalletsLineHtml(language: Language, used: number): string {
-  return `<i>${escapeHtml(quotaPlainWallets(language, used))}</i>`;
+function quotaWalletsLineHtml(language: Language, used: number, max: number): string {
+  return `<i>${escapeHtml(quotaPlainWallets(language, used, max))}</i>`;
 }
 
-function quotaContactsLineHtml(language: Language, used: number): string {
-  return `<i>${escapeHtml(quotaPlainContacts(language, used))}</i>`;
+function quotaContactsLineHtml(language: Language, used: number, max: number): string {
+  return `<i>${escapeHtml(quotaPlainContacts(language, used, max))}</i>`;
 }
 
-function formatGreetQuotaLine(language: Language, walletsUsed: number, contactsUsed: number): string {
-  const wFree = Math.max(0, MAX_WALLETS - walletsUsed);
-  const cFree = Math.max(0, MAX_CONTACTS - contactsUsed);
+function formatGreetQuotaLine(
+  language: Language,
+  walletsUsed: number,
+  contactsUsed: number,
+  walletMax: number,
+  contactMax: number
+): string {
+  const wFree = Math.max(0, walletMax - walletsUsed);
+  const cFree = Math.max(0, contactMax - contactsUsed);
   return t(language, "greetQuotaLine")
     .replace("{wUsed}", String(walletsUsed))
-    .replace("{wMax}", String(MAX_WALLETS))
+    .replace("{wMax}", String(walletMax))
     .replace("{wFree}", String(wFree))
     .replace("{cUsed}", String(contactsUsed))
-    .replace("{cMax}", String(MAX_CONTACTS))
+    .replace("{cMax}", String(contactMax))
     .replace("{cFree}", String(cFree));
 }
 
@@ -674,7 +695,7 @@ async function loadPagedListContent(
 } | null> {
   switch (kind) {
     case "w": {
-      const wallets = await listWallets(env, userId);
+      const [wallets, summary] = await Promise.all([listWallets(env, userId), getUsageSummary(env, userId)]);
       if (wallets.length === 0) {
         return null;
       }
@@ -686,11 +707,11 @@ async function loadPagedListContent(
         title: `👁️ <b>${escapeHtml(t(language, "walletsTitle"))}</b>`,
         lines,
         parseMode: "HTML",
-        quotaLineHtml: quotaWalletsLineHtml(language, wallets.length)
+        quotaLineHtml: quotaWalletsLineHtml(language, wallets.length, summary.walletLimit)
       };
     }
     case "cl": {
-      const contacts = await listContacts(env, userId);
+      const [contacts, summary] = await Promise.all([listContacts(env, userId), getUsageSummary(env, userId)]);
       if (contacts.length === 0) {
         return null;
       }
@@ -702,7 +723,7 @@ async function loadPagedListContent(
         title: `👥 <b>${escapeHtml(t(language, "contactsTitle"))}</b>`,
         lines,
         parseMode: "HTML",
-        quotaLineHtml: quotaContactsLineHtml(language, contacts.length)
+        quotaLineHtml: quotaContactsLineHtml(language, contacts.length, summary.contactLimit)
       };
     }
     case "b": {
@@ -884,9 +905,11 @@ async function sendPagedList(params: {
     }
     let emptyText = pagedListEmptyText(params.language, params.kind);
     if (params.kind === "w") {
-      emptyText += `\n\n${quotaPlainWallets(params.language, 0)}`;
+      const summary = await getUsageSummary(params.env, params.userId);
+      emptyText += `\n\n${quotaPlainWallets(params.language, 0, summary.walletLimit)}`;
     } else if (params.kind === "cl") {
-      emptyText += `\n\n${quotaPlainContacts(params.language, 0)}`;
+      const summary = await getUsageSummary(params.env, params.userId);
+      emptyText += `\n\n${quotaPlainContacts(params.language, 0, summary.contactLimit)}`;
     }
     await sendTelegramMessage(params.token, params.chatId, emptyText, params.replyKeyboard);
     return;
@@ -1022,10 +1045,12 @@ function mapCreateError(
     return t(language, "contactAlreadyExists");
   }
   if (entity === "wallet" && message.startsWith("Wallet limit reached")) {
-    return t(language, "walletLimitReached");
+    const m = message.match(/Wallet limit reached:\s*(\d+)/);
+    return t(language, "walletLimitReached").replace("{max}", m ? m[1] : "10");
   }
   if (entity === "contact" && message.startsWith("Contact limit reached")) {
-    return t(language, "contactLimitReached");
+    const m = message.match(/Contact limit reached:\s*(\d+)/);
+    return t(language, "contactLimitReached").replace("{max}", m ? m[1] : "50");
   }
   return message;
 }
@@ -1086,6 +1111,7 @@ function cabinetKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
       [t(language, "btnPaySubscription"), t(language, "btnCheckPayment")],
+      [t(language, "btnPaySlotPack")],
       [t(language, "btnActivatePromo")],
       [t(language, "btnMainMenu")]
     ],
@@ -1538,8 +1564,12 @@ bot.post("/telegram", async (c) => {
       ? t(language, "greet")
       : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`;
     if (hasBotAccess) {
-      const [walletsG, contactsG] = await Promise.all([listWallets(c.env, userId), listContacts(c.env, userId)]);
-      welcomeText += "\n\n" + formatGreetQuotaLine(language, walletsG.length, contactsG.length);
+      const [walletsG, contactsG, summaryG] = await Promise.all([
+        listWallets(c.env, userId),
+        listContacts(c.env, userId),
+        getUsageSummary(c.env, userId)
+      ]);
+      welcomeText += "\n\n" + formatGreetQuotaLine(language, walletsG.length, contactsG.length, summaryG.walletLimit, summaryG.contactLimit);
     }
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
@@ -1548,6 +1578,35 @@ bot.post("/telegram", async (c) => {
       mainKeyboard(language, isAdmin, hasBotAccess)
     );
     return c.json({ ok: true });
+  }
+
+  if (isAdmin && text) {
+    const slotsMatch = text.match(/^\s*SLOTS\s+(\d+)\s+(\d+)\s+(\d+)\s*$/i);
+    if (slotsMatch) {
+      const targetUserId = slotsMatch[1] ?? "";
+      const wAdd = Number.parseInt(slotsMatch[2] ?? "0", 10);
+      const cAdd = Number.parseInt(slotsMatch[3] ?? "0", 10);
+      if (!/^\d+$/.test(targetUserId) || wAdd < 0 || cAdd < 0) {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminSlotsHelp"),
+          adminKeyboard(language),
+          "HTML"
+        );
+        return c.json({ ok: true });
+      }
+      const [totalExtraW, totalExtraC] = await Promise.all([
+        addExtraWalletSlots(c.env, targetUserId, wAdd),
+        addExtraContactSlots(c.env, targetUserId, cAdd)
+      ]);
+      const msg =
+        language === "ru"
+          ? `Слоты обновлены (user <code>${escapeHtml(targetUserId)}</code>).\nКошельки: +${wAdd} → всего доп.: ${totalExtraW}\nКонтакты: +${cAdd} → всего доп.: ${totalExtraC}`
+          : `Slots updated (user <code>${escapeHtml(targetUserId)}</code>).\nWallets: +${wAdd} → total extra: ${totalExtraW}\nContacts: +${cAdd} → total extra: ${totalExtraC}`;
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, msg, adminKeyboard(language), "HTML");
+      return c.json({ ok: true });
+    }
   }
 
   await deleteTelegramMessageWithRetry(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
@@ -1583,12 +1642,14 @@ bot.post("/telegram", async (c) => {
   const allowsPaymentFlow =
     isBtn(text, "btnCabinet") ||
     isBtn(text, "btnPaySubscription") ||
+    isBtn(text, "btnPaySlotPack") ||
     isBtn(text, "btnCheckPayment") ||
     isBtn(text, "btnActivatePromo") ||
     isBtn(text, "paymentNetworkBsc") ||
     isBtn(text, "paymentNetworkTrc20") ||
     session?.flow === "cabinet:promo:code" ||
-    session?.flow === "cabinet:pay:network";
+    session?.flow === "cabinet:pay:network" ||
+    session?.flow === "cabinet:pay-slots:network";
 
   if (!hasBotAccess && !allowsPaymentFlow) {
     await setBotSession(c.env, userId, { flow: "section:cabinet" });
@@ -2036,6 +2097,41 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  if (session?.flow === "cabinet:pay-slots:network") {
+    const network = isBtn(text, "paymentNetworkBsc")
+      ? "bsc"
+      : isBtn(text, "paymentNetworkTrc20")
+        ? "trc20"
+        : null;
+    if (!network) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "slotPackPaymentChooseNetwork"),
+        paymentNetworkKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
+    const invoice = await createSlotPackPaymentInvoice(c.env, userId, network);
+    await setBotSession(c.env, userId, { flow: "section:cabinet" });
+    const networkLabel = network === "bsc" ? t(language, "paymentNetworkBsc") : t(language, "paymentNetworkTrc20");
+    const htmlText =
+      `<b>${escapeHtml(t(language, "slotPackInvoiceTitle"))}</b> (${escapeHtml(networkLabel)})\n\n` +
+      `💵 <b>${escapeHtml(t(language, "paymentAmount"))}:</b> ${escapeHtml(invoice.amountText)} ${escapeHtml(invoice.asset)}\n` +
+      `🏦 <b>${escapeHtml(t(language, "paymentAddress"))}:</b>\n<code>${escapeHtml(invoice.payAddress)}</code>\n` +
+      `🕒 <b>${escapeHtml(t(language, "paymentExpiresAt"))}:</b> ${escapeHtml(formatDateForLanguage(invoice.expiresAt, language))}\n\n` +
+      `ℹ️ ${escapeHtml(t(language, "paymentInstruction"))}\n` +
+      `📋 ${escapeHtml(t(language, "paymentCopyHint"))}`;
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      htmlText,
+      cabinetKeyboard(language),
+      "HTML"
+    );
+    return c.json({ ok: true });
+  }
+
   if (session?.flow === "cabinet:promo:code") {
     try {
       if (!text.trim()) {
@@ -2348,7 +2444,7 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `🛡️ <b>${escapeHtml(t(language, "adminPanelTitle"))}</b>`,
+      `🛡️ <b>${escapeHtml(t(language, "adminPanelTitle"))}</b>\n\n${t(language, "adminSlotsHelp")}`,
       adminKeyboard(language),
       "HTML"
     );
@@ -2372,19 +2468,33 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
+  if (isBtn(text, "btnPaySlotPack")) {
+    await setBotSession(c.env, userId, { flow: "cabinet:pay-slots:network" });
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      t(language, "slotPackPaymentChooseNetwork"),
+      paymentNetworkKeyboard(language)
+    );
+    return c.json({ ok: true });
+  }
+
   if (isBtn(text, "btnCheckPayment")) {
     const result = await processSubscriptionPayments(c.env, { userId });
-    const active = await getActiveSubscriptionPaymentRequest(c.env, userId);
+    const [activeSub, activeSlot] = await Promise.all([
+      getActiveSubscriptionPaymentRequest(c.env, userId),
+      getActiveSlotPackPaymentRequest(c.env, userId)
+    ]);
     if (result.paid > 0) {
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        language === "ru" ? "✅ Платеж найден и подписка активирована." : "✅ Payment found and subscription activated.",
+        language === "ru" ? "✅ Платёж обработан." : "✅ Payment applied.",
         cabinetKeyboard(language)
       );
       return c.json({ ok: true });
     }
-    if (!active) {
+    if (!activeSub && !activeSlot) {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "paymentCheckNoRequest"), cabinetKeyboard(language));
       return c.json({ ok: true });
     }

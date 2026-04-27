@@ -2,7 +2,9 @@ import { formatUnits, getAddress } from "viem";
 import type { Env, Language } from "../types/env";
 import {
   activatePaidSubscription,
+  addExtraWalletSlots,
   createSubscriptionPaymentRequest,
+  getActiveSlotPackPaymentRequest,
   getActiveSubscriptionPaymentRequest,
   getSettings,
   listPendingSubscriptionPayments,
@@ -12,6 +14,8 @@ import {
 
 const PLAN_DURATION_DAYS = 30;
 const SUBSCRIPTION_BASE_AMOUNT_USDT = 15;
+const SLOT_PACK_AMOUNT_USDT = 10;
+const SLOT_PACK_WALLET_SLOTS = 10;
 const PAYMENT_REQUEST_TTL_MINUTES = 45;
 const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
 const DEFAULT_EVM_PAY_ADDRESS = "0x12DDc62b62516aa44e2f292C38435f3e432414A8";
@@ -63,8 +67,12 @@ function formatIsoForLanguage(value: string, language: Language): string {
   }).format(date);
 }
 
-function makeAmountText(): string {
+function makeSubscriptionAmountText(): string {
   return String(SUBSCRIPTION_BASE_AMOUNT_USDT);
+}
+
+function makeSlotPackAmountText(): string {
+  return String(SLOT_PACK_AMOUNT_USDT);
 }
 
 async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
@@ -288,6 +296,7 @@ export async function createSubscriptionPaymentInvoice(
   network: PaymentNetwork
 ): Promise<{
   id: string;
+  productType: "subscription";
   network: PaymentNetwork;
   asset: "USDT";
   payAddress: string;
@@ -296,7 +305,7 @@ export async function createSubscriptionPaymentInvoice(
   durationDays: number;
 }> {
   const existing = await getActiveSubscriptionPaymentRequest(env, userId);
-  const expectedAmount = makeAmountText();
+  const expectedAmount = makeSubscriptionAmountText();
   const expectedAddress = network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env);
   if (
     existing &&
@@ -307,6 +316,7 @@ export async function createSubscriptionPaymentInvoice(
   ) {
     return {
       id: existing.id,
+      productType: "subscription" as const,
       network: existing.network,
       asset: existing.asset,
       payAddress: existing.payAddress,
@@ -326,10 +336,73 @@ export async function createSubscriptionPaymentInvoice(
     payAddress: expectedAddress,
     amountText: expectedAmount,
     durationDays: PLAN_DURATION_DAYS,
-    expiresAt
+    expiresAt,
+    productType: "subscription"
   });
   return {
     id: created.id,
+    productType: "subscription" as const,
+    network: created.network,
+    asset: created.asset,
+    payAddress: created.payAddress,
+    amountText: created.amountText,
+    expiresAt: created.expiresAt,
+    durationDays: created.durationDays
+  };
+}
+
+export async function createSlotPackPaymentInvoice(
+  env: Env,
+  userId: string,
+  network: PaymentNetwork
+): Promise<{
+  id: string;
+  productType: "wallet_slots_10";
+  network: PaymentNetwork;
+  asset: "USDT";
+  payAddress: string;
+  amountText: string;
+  expiresAt: string;
+  durationDays: number;
+}> {
+  const existing = await getActiveSlotPackPaymentRequest(env, userId);
+  const expectedAmount = makeSlotPackAmountText();
+  const expectedAddress = network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env);
+  if (
+    existing &&
+    Date.parse(existing.expiresAt) > Date.now() &&
+    existing.network === network &&
+    existing.amountText === expectedAmount &&
+    existing.payAddress.toLowerCase() === expectedAddress.toLowerCase()
+  ) {
+    return {
+      id: existing.id,
+      productType: "wallet_slots_10",
+      network: existing.network,
+      asset: existing.asset,
+      payAddress: existing.payAddress,
+      amountText: existing.amountText,
+      expiresAt: existing.expiresAt,
+      durationDays: existing.durationDays
+    };
+  }
+  if (existing) {
+    await markSubscriptionPaymentExpired(env, existing.id);
+  }
+  const expiresAt = new Date(Date.now() + PAYMENT_REQUEST_TTL_MINUTES * 60 * 1000).toISOString();
+  const created = await createSubscriptionPaymentRequest(env, {
+    userId,
+    network,
+    asset: "USDT",
+    payAddress: expectedAddress,
+    amountText: expectedAmount,
+    durationDays: 0,
+    expiresAt,
+    productType: "wallet_slots_10"
+  });
+  return {
+    id: created.id,
+    productType: "wallet_slots_10",
     network: created.network,
     asset: created.asset,
     payAddress: created.payAddress,
@@ -393,21 +466,30 @@ export async function processSubscriptionPayments(
 
     usedTxids.add(match.txid);
     await markSubscriptionPaymentPaid(env, request.id, match.txid, new Date(match.timestampMs).toISOString());
-    const subscription = await activatePaidSubscription(env, request.userId, request.durationDays);
     const settings = await getSettings(env, request.userId);
     const language = settings.language;
-    const status = language === "ru" ? "активна" : "active";
-    const successText =
-      language === "ru"
-        ? `✅ Оплата подтверждена.\nПодписка активирована на ${request.durationDays} дней.\n\nТариф: ${subscription.planCode}\nСтатус: ${status}\nДействует до: ${formatIsoForLanguage(
-            subscription.expiresAt ?? "",
-            language
-          )}`
-        : `✅ Payment confirmed.\nSubscription activated for ${request.durationDays} days.\n\nPlan: ${subscription.planCode}\nStatus: ${status}\nValid until: ${formatIsoForLanguage(
-            subscription.expiresAt ?? "",
-            language
-          )}`;
-    await sendTelegramMessage(env, request.userId, successText);
+    if (request.productType === "wallet_slots_10") {
+      const totalExtra = await addExtraWalletSlots(env, request.userId, SLOT_PACK_WALLET_SLOTS);
+      const successText =
+        language === "ru"
+          ? `✅ Оплата подтверждена.\nДобавлено ${SLOT_PACK_WALLET_SLOTS} слотов для отслеживаемых кошельков. Всего дополнительных слотов: ${totalExtra}.`
+          : `✅ Payment confirmed.\n+${SLOT_PACK_WALLET_SLOTS} wallet slots. Total extra slots: ${totalExtra}.`;
+      await sendTelegramMessage(env, request.userId, successText);
+    } else {
+      const subscription = await activatePaidSubscription(env, request.userId, request.durationDays);
+      const status = language === "ru" ? "активна" : "active";
+      const successText =
+        language === "ru"
+          ? `✅ Оплата подтверждена.\nПодписка активирована на ${request.durationDays} дней.\n\nТариф: ${subscription.planCode}\nСтатус: ${status}\nДействует до: ${formatIsoForLanguage(
+              subscription.expiresAt ?? "",
+              language
+            )}`
+          : `✅ Payment confirmed.\nSubscription activated for ${request.durationDays} days.\n\nPlan: ${subscription.planCode}\nStatus: ${status}\nValid until: ${formatIsoForLanguage(
+              subscription.expiresAt ?? "",
+              language
+            )}`;
+      await sendTelegramMessage(env, request.userId, successText);
+    }
     paid += 1;
   }
 

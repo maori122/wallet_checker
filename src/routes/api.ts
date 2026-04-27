@@ -10,7 +10,10 @@ import {
   createWallet,
   deleteContact,
   deleteWallet,
+  getActiveSlotPackPaymentRequest,
   getActiveSubscriptionPaymentRequest,
+  addExtraContactSlots,
+  addExtraWalletSlots,
   getSettings,
   getSubscriptionInfo,
   getUsageSummary,
@@ -28,7 +31,11 @@ import {
   updateSettings
 } from "../lib/db";
 import { getWalletBalances } from "../lib/wallet-insights";
-import { createSubscriptionPaymentInvoice, processSubscriptionPayments } from "../lib/subscription-payments";
+import {
+  createSlotPackPaymentInvoice,
+  createSubscriptionPaymentInvoice,
+  processSubscriptionPayments
+} from "../lib/subscription-payments";
 import {
   createContactSchema,
   createWalletSchema,
@@ -100,10 +107,12 @@ function mapApiError(error: unknown): string {
     return "Promo code format is invalid.";
   }
   if (message.startsWith("Wallet limit reached")) {
-    return "Wallet limit reached (10).";
+    const m = message.match(/Wallet limit reached:\s*(\d+)/);
+    return m ? `Wallet limit reached (${m[1]}).` : "Wallet limit reached.";
   }
   if (message.startsWith("Contact limit reached")) {
-    return "Known wallet limit reached (50).";
+    const m = message.match(/Contact limit reached:\s*(\d+)/);
+    return m ? `Known wallet limit reached (${m[1]}).` : "Known wallet limit reached.";
   }
   if (message === "FORBIDDEN_ADMIN_ONLY") {
     return "Admin access required.";
@@ -121,6 +130,7 @@ function isSubscriptionPublicRoute(path: string): boolean {
     normalized === "/subscription" ||
     normalized === "/subscription/invoice" ||
     normalized === "/subscription/check" ||
+    normalized === "/subscription/slots/invoice" ||
     normalized === "/promo/activate" ||
     normalized.startsWith("/admin/")
   );
@@ -264,11 +274,12 @@ api.put("/settings", async (c) => {
 
 api.get("/subscription", async (c) => {
   const userId = getUserId(c);
-  const [subscription, activePayment] = await Promise.all([
+  const [subscription, activePayment, activeSlotPack] = await Promise.all([
     getSubscriptionInfo(c.env, userId),
-    getActiveSubscriptionPaymentRequest(c.env, userId)
+    getActiveSubscriptionPaymentRequest(c.env, userId),
+    getActiveSlotPackPaymentRequest(c.env, userId)
   ]);
-  return c.json({ subscription, activePayment });
+  return c.json({ subscription, activePayment, activeSlotPack });
 });
 
 api.post("/subscription/invoice", async (c) => {
@@ -291,11 +302,28 @@ api.post("/subscription/check", async (c) => {
   try {
     const userId = getUserId(c);
     const result = await processSubscriptionPayments(c.env, { userId });
-    const [subscription, activePayment] = await Promise.all([
+    const [subscription, activePayment, activeSlotPack] = await Promise.all([
       getSubscriptionInfo(c.env, userId),
-      getActiveSubscriptionPaymentRequest(c.env, userId)
+      getActiveSubscriptionPaymentRequest(c.env, userId),
+      getActiveSlotPackPaymentRequest(c.env, userId)
     ]);
-    return c.json({ result, subscription, activePayment });
+    return c.json({ result, subscription, activePayment, activeSlotPack });
+  } catch (error) {
+    return c.json({ error: mapApiError(error) }, 400);
+  }
+});
+
+api.post("/subscription/slots/invoice", async (c) => {
+  try {
+    const userId = getUserId(c);
+    const body = parseBody(
+      z.object({
+        network: z.enum(["bsc", "trc20"])
+      }),
+      await c.req.json()
+    );
+    const invoice = await createSlotPackPaymentInvoice(c.env, userId, body.network);
+    return c.json({ invoice }, 201);
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 400);
   }
@@ -430,6 +458,27 @@ api.get("/admin/wallet-reputation", async (c) => {
     return c.json({ items });
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 403);
+  }
+});
+
+api.post("/admin/slot-bonuses", async (c) => {
+  try {
+    requireAdmin(c.env, getUserId(c));
+    const body = parseBody(
+      z.object({
+        targetUserId: z.string().regex(/^\d+$/),
+        extraWalletSlots: z.coerce.number().int().min(0).max(100_000),
+        extraContactSlots: z.coerce.number().int().min(0).max(100_000)
+      }),
+      await c.req.json()
+    );
+    const [totalExtraWallets, totalExtraContacts] = await Promise.all([
+      addExtraWalletSlots(c.env, body.targetUserId, body.extraWalletSlots),
+      addExtraContactSlots(c.env, body.targetUserId, body.extraContactSlots)
+    ]);
+    return c.json({ ok: true, totalExtraWallets, totalExtraContacts });
+  } catch (error) {
+    return c.json({ error: mapApiError(error) }, 400);
   }
 });
 
