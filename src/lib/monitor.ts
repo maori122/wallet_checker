@@ -39,7 +39,8 @@ let priceCache:
       usdt: number;
     }
   | null = null;
-const PRICE_CACHE_TTL_MS = 10 * 60 * 1000;
+/** CoinGecko free tier from datacenters is very strict; fewer refresh calls = fewer 429s. */
+const PRICE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 function maskAddress(value: string): string {
   if (value.length <= 14) {
@@ -485,126 +486,115 @@ async function fetchUsdtTrc20Transfers(address: string, apiKey?: string): Promis
   return items;
 }
 
-async function getPricesUsd(): Promise<{ btc: number; eth: number; usdt: number }> {
+async function getPricesUsd(env: Env): Promise<{ btc: number; eth: number; usdt: number }> {
   const now = Date.now();
   if (priceCache && now - priceCache.timestamp < PRICE_CACHE_TTL_MS) {
     return {
       btc: priceCache.btc,
       eth: priceCache.eth,
       usdt: priceCache.usdt
-    }
+    };
   }
 
-  type PriceResponse = {
+  type CoinGeckoSimple = {
     bitcoin?: { usd?: number };
     ethereum?: { usd?: number };
     tether?: { usd?: number };
   };
-  type CryptoCompareResponse = {
+  type CryptoCompareMulti = {
     BTC?: { USD?: number };
     ETH?: { USD?: number };
     USDT?: { USD?: number };
   };
-  type CoinbasePriceResponse = {
+  type CoinbaseSpot = {
     data?: { amount?: string };
   };
+
+  const commonHeaders = {
+    accept: "application/json",
+    "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
+  };
+
+  const applyCache = (btc: number, eth: number, usdt: number) => {
+    priceCache = { timestamp: now, btc, eth, usdt };
+  };
+
+  // 1) CryptoCompare — usually tolerates serverless IP; one call for BTC/ETH/USDT.
   try {
-    const result = await fetchJson<PriceResponse>(
+    const alt = await fetchJson<CryptoCompareMulti>(
+      "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,USDT&tsyms=USD",
+      { headers: commonHeaders },
+      true
+    );
+    const btc = alt.BTC?.USD ?? 0;
+    const eth = alt.ETH?.USD ?? 0;
+    const usdt = alt.USDT?.USD ?? 1;
+    if (btc > 0 && eth > 0) {
+      applyCache(btc, eth, usdt);
+      return { btc, eth, usdt };
+    }
+  } catch {
+    // try next — no log (expected occasionally)
+  }
+
+  // 2) CoinGecko — often 429 from shared DC IPs; optional Demo API key raises limits.
+  try {
+    const cgKey = env.COINGECKO_API_KEY?.trim();
+    const cgHeaders: Record<string, string> = { ...commonHeaders };
+    if (cgKey) {
+      cgHeaders["x-cg-demo-api-key"] = cgKey;
+    }
+    const result = await fetchJson<CoinGeckoSimple>(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=usd",
-      {
-        headers: {
-          accept: "application/json",
-          "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
-        }
-      },
+      { headers: cgHeaders },
       true
     );
     const btc = result.bitcoin?.usd ?? 0;
     const eth = result.ethereum?.usd ?? 0;
     const usdt = result.tether?.usd ?? 1;
-    if (btc <= 0 || eth <= 0) {
-      throw new Error("CoinGecko returned incomplete prices");
+    if (btc > 0 && eth > 0) {
+      applyCache(btc, eth, usdt);
+      return { btc, eth, usdt };
     }
-
-    priceCache = {
-      timestamp: now,
-      btc,
-      eth,
-      usdt
-    };
-  } catch (error) {
-    // If CoinGecko blocks Cloudflare (403/rate limit), fall back to another source.
-    // eslint-disable-next-line no-console
-    console.warn("CoinGecko price fetch failed; trying fallback provider", {
-      error: (error as Error)?.message ?? String(error)
-    });
-    try {
-      const alt = await fetchJson<CryptoCompareResponse>(
-        "https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,USDT&tsyms=USD",
-        {
-          headers: {
-            accept: "application/json",
-            "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
-          }
-        },
-        true
-      );
-      const btc = alt.BTC?.USD ?? 0;
-      const eth = alt.ETH?.USD ?? 0;
-      const usdt = alt.USDT?.USD ?? 1;
-      if (btc <= 0 || eth <= 0) {
-        throw new Error("Fallback provider returned incomplete prices");
-      }
-      priceCache = {
-        timestamp: now,
-        btc,
-        eth,
-        usdt
-      };
-    } catch (fallbackError) {
-      try {
-        const [btcSpot, ethSpot] = await Promise.all([
-          fetchJson<CoinbasePriceResponse>("https://api.coinbase.com/v2/prices/BTC-USD/spot", {
-            headers: {
-              accept: "application/json",
-              "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
-            }
-          }, true),
-          fetchJson<CoinbasePriceResponse>("https://api.coinbase.com/v2/prices/ETH-USD/spot", {
-            headers: {
-              accept: "application/json",
-              "user-agent": "wallet-worker/1.0 (+cloudflare-worker)"
-            }
-          }, true)
-        ]);
-        const btc = Number.parseFloat(btcSpot.data?.amount ?? "");
-        const eth = Number.parseFloat(ethSpot.data?.amount ?? "");
-        if (!Number.isFinite(btc) || !Number.isFinite(eth) || btc <= 0 || eth <= 0) {
-          throw new Error("Coinbase fallback returned invalid prices");
-        }
-        priceCache = {
-          timestamp: now,
-          btc,
-          eth,
-          usdt: 1
-        };
-      } catch (lastError) {
-        // If all providers fail, keep monitoring transfers and just skip USD estimates.
-        // eslint-disable-next-line no-console
-        console.warn("All price providers failed; USD estimates disabled temporarily", {
-          error: (lastError as Error)?.message ?? String(lastError),
-          previous: (fallbackError as Error)?.message ?? String(fallbackError)
-        });
-        const fallback = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
-        priceCache = {
-          timestamp: now,
-          btc: fallback.btc,
-          eth: fallback.eth,
-          usdt: fallback.usdt
-        };
-      }
-    };
+  } catch {
+    // try last
   }
+
+  // 3) Coinbase spot BTC/ETH only; USDT近似 1 USD
+  try {
+    const [btcSpot, ethSpot] = await Promise.all([
+      fetchJson<CoinbaseSpot>(
+        "https://api.coinbase.com/v2/prices/BTC-USD/spot",
+        { headers: commonHeaders },
+        true
+      ),
+      fetchJson<CoinbaseSpot>(
+        "https://api.coinbase.com/v2/prices/ETH-USD/spot",
+        { headers: commonHeaders },
+        true
+      )
+    ]);
+    const btc = Number.parseFloat(btcSpot.data?.amount ?? "");
+    const eth = Number.parseFloat(ethSpot.data?.amount ?? "");
+    if (Number.isFinite(btc) && Number.isFinite(eth) && btc > 0 && eth > 0) {
+      applyCache(btc, eth, 1);
+      return { btc, eth, usdt: 1 };
+    }
+  } catch {
+    // fall through
+  }
+
+  const stale = priceCache ?? { timestamp: now, btc: 0, eth: 0, usdt: 1 };
+  // eslint-disable-next-line no-console
+  console.warn("All price providers failed; USD estimates use last cache or zero until next refresh", {
+    hadCache: Boolean(priceCache)
+  });
+  priceCache = {
+    timestamp: now,
+    btc: stale.btc,
+    eth: stale.eth,
+    usdt: stale.usdt
+  };
 
   return {
     btc: priceCache.btc,
@@ -696,7 +686,7 @@ export async function runWalletMonitoring(env: Env): Promise<void> {
 
   let prices = { btc: 0, eth: 0, usdt: 1 };
   try {
-    prices = await getPricesUsd();
+    prices = await getPricesUsd(env);
   } catch (error) {
     // Hard safety net: monitoring must continue even if pricing layer breaks unexpectedly.
     // eslint-disable-next-line no-console

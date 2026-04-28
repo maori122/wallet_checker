@@ -10,6 +10,8 @@ export type Env = {
   DEV_AUTH_BYPASS?: string;
   SUBSCRIPTION_EVM_PAY_ADDRESS?: string;
   SUBSCRIPTION_TRC20_PAY_ADDRESS?: string;
+  /** CoinGecko demo API key — higher rate limits; header x-cg-demo-api-key */
+  COINGECKO_API_KEY?: string;
 };
 
 export type Language = "ru" | "en";
