@@ -24,6 +24,7 @@ import {
   getSettings,
   getActiveSlotPackPaymentRequest,
   getPaymentPricingUsdt,
+  upsertPaymentPricing,
   addExtraContactSlots,
   addExtraWalletSlots,
   getAdminDashboardStats,
@@ -202,6 +203,11 @@ const I18N = {
       "Сначала нажмите «Промокоды», чтобы обновить список — затем можно написать, например: <b>Удалить 1</b>.",
     adminPromoPdelBadIndex:
       "Некорректный номер. Укажите число от 1 до {max}, как у строк в последнем отправленном списке.",
+    adminPricingHelp:
+      "Как изменить:\n• Две суммы подряд: <code>ЦЕНЫ 15 10</code> — сначала подписка (USDT за 30 дн.), затем пакет +10 слотов.\n• По отдельности (латиница): <code>PRICE sub 15</code> и <code>PRICE slots 10</code>.\nОтправьте <code>ЦЕНЫ</code> или <code>PRICE</code> без чисел — только показать текущие цены.",
+    adminPricingUpdated:
+      "Цены сохранены. Подписка: <b>{sub}</b> USDT · Пакет +10 слотов: <b>{slots}</b> USDT.",
+    adminPricingInvalid: "Не удалось сохранить: проверьте числа (например 15 или 9.99), суммы должны быть больше нуля.",
     adminPromoWhoEmpty: "По этому промокоду пока ни одной активации.",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
@@ -239,6 +245,7 @@ const I18N = {
     btnAdminLinks: "🔎 Логи ссылок",
     btnAdminCreatePromo: "🎟️ Создать промокод",
     btnAdminPromoList: "🎟️ Промокоды",
+    btnAdminPricing: "💲 Цены (USDT)",
     btnActivatePromo: "🎟️ Активировать промокод",
     btnPaySubscription: "💳 Оплатить подписку",
     btnPaySlotPack: "➕ +10 слотов",
@@ -368,6 +375,12 @@ const I18N = {
       "Open «Promo codes» first to refresh the list — then send e.g. <b>Delete 1</b>.",
     adminPromoPdelBadIndex:
       "Invalid index. Use a number from 1 to {max} as in the last list above.",
+    adminPricingHelp:
+      "How to change:\n• Two amounts: <code>PRICE 15 10</code> or <code>ЦЕНЫ 15 10</code> — subscription (USDT, 30d) then +10-slot pack.\n• Or separately: <code>PRICE sub 15</code>, <code>PRICE slots 10</code>.\nSend <code>PRICE</code> or <code>ЦЕНЫ</code> alone to show current prices.",
+    adminPricingUpdated:
+      "Prices saved. Subscription: <b>{sub}</b> USDT · +10 slots pack: <b>{slots}</b> USDT.",
+    adminPricingInvalid:
+      "Could not save. Use positive amounts (e.g. 15 or 9.99).",
     adminPromoWhoEmpty: "No activations for this promo yet.",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
@@ -403,6 +416,7 @@ const I18N = {
     btnAdminLinks: "🔎 Links log",
     btnAdminCreatePromo: "🎟️ Create promo code",
     btnAdminPromoList: "🎟️ Promo codes",
+    btnAdminPricing: "💲 Prices (USDT)",
     btnActivatePromo: "🎟️ Activate promo code",
     btnPaySubscription: "💳 Pay subscription",
     btnPaySlotPack: "➕ +10 slots",
@@ -444,7 +458,8 @@ function isAdminActionButton(input: string): boolean {
     isBtn(input, "btnAdminStopWallets") ||
     isBtn(input, "btnAdminLinks") ||
     isBtn(input, "btnAdminCreatePromo") ||
-    isBtn(input, "btnAdminPromoList")
+    isBtn(input, "btnAdminPromoList") ||
+    isBtn(input, "btnAdminPricing")
   );
 }
 
@@ -655,6 +670,7 @@ function pagedListReplyKeyboard(language: Language, kind: PagedListKind, totalPa
         [t(language, "btnAdminStats")],
         [t(language, "btnAdminCreatePromo")],
         [t(language, "btnAdminPromoList")],
+        [t(language, "btnAdminPricing")],
         [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
         navRow
       ],
@@ -1298,6 +1314,7 @@ function adminKeyboard(language: Language): ReplyMarkup {
       [t(language, "btnAdminStats")],
       [t(language, "btnAdminCreatePromo")],
       [t(language, "btnAdminPromoList")],
+      [t(language, "btnAdminPricing")],
       [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
       [t(language, "btnMainMenu")]
     ],
@@ -1627,6 +1644,18 @@ async function resolveSlotPackNetworkPrompt(language: Language, env: Env): Promi
   return t(language, "slotPackPaymentChooseNetwork").replace("{amount}", amount);
 }
 
+async function formatAdminPricingPanelHtml(language: Language, env: Env): Promise<string> {
+  const { subscriptionUsdtText, slotPackUsdtText } = await getPaymentPricingUsdt(env);
+  const sub = escapeHtml(subscriptionUsdtText);
+  const sl = escapeHtml(slotPackUsdtText);
+  const headline = language === "ru" ? "<b>💲 Цены счетов (USDT)</b>" : "<b>💲 Invoice prices (USDT)</b>";
+  const body =
+    language === "ru"
+      ? `Подписка (30 дн.): <b>${sub}</b>\nПакет +10 слотов: <b>${sl}</b>`
+      : `Subscription (30d): <b>${sub}</b>\n+10 slots pack: <b>${sl}</b>`;
+  return `${headline}\n\n${body}\n\n${t(language, "adminPricingHelp")}`;
+}
+
 bot.post("/telegram", async (c) => {
   const secret = c.req.header("x-telegram-bot-api-secret-token");
   if (!secret || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -1853,6 +1882,98 @@ bot.post("/telegram", async (c) => {
           ? `Слоты обновлены (user <code>${escapeHtml(targetUserId)}</code>).\nКошельки: +${wAdd} → всего доп.: ${totalExtraW}\nКонтакты: +${cAdd} → всего доп.: ${totalExtraC}`
           : `Slots updated (user <code>${escapeHtml(targetUserId)}</code>).\nWallets: +${wAdd} → total extra: ${totalExtraW}\nContacts: +${cAdd} → total extra: ${totalExtraC}`;
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, msg, adminKeyboard(language), "HTML");
+      return c.json({ ok: true });
+    }
+    const pricingBareCmd = text.match(/^\s*(?:PRICE|ЦЕНЫ)\s*$/iu);
+    if (pricingBareCmd) {
+      const pricingPanelHtml = await formatAdminPricingPanelHtml(language, c.env);
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        pricingPanelHtml,
+        adminKeyboard(language),
+        "HTML"
+      );
+      return c.json({ ok: true });
+    }
+    const pricingBothMatch = text.match(
+      /^\s*(?:PRICE|ЦЕНЫ)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*$/iu
+    );
+    if (pricingBothMatch?.[1] && pricingBothMatch?.[2]) {
+      try {
+        await upsertPaymentPricing(c.env, {
+          subscriptionUsdtText: pricingBothMatch[1],
+          slotPackUsdtText: pricingBothMatch[2]
+        });
+        const freshPricingBoth = await getPaymentPricingUsdt(c.env);
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPricingUpdated")
+            .replace("{sub}", escapeHtml(freshPricingBoth.subscriptionUsdtText))
+            .replace("{slots}", escapeHtml(freshPricingBoth.slotPackUsdtText)),
+          adminKeyboard(language),
+          "HTML"
+        );
+      } catch {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPricingInvalid"),
+          adminKeyboard(language),
+          "HTML"
+        );
+      }
+      return c.json({ ok: true });
+    }
+    const pricingSubOnly = text.match(/^\s*PRICE\s+sub\s+(\d+(?:\.\d+)?)\s*$/i);
+    if (pricingSubOnly?.[1]) {
+      try {
+        await upsertPaymentPricing(c.env, { subscriptionUsdtText: pricingSubOnly[1] });
+        const fp = await getPaymentPricingUsdt(c.env);
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPricingUpdated")
+            .replace("{sub}", escapeHtml(fp.subscriptionUsdtText))
+            .replace("{slots}", escapeHtml(fp.slotPackUsdtText)),
+          adminKeyboard(language),
+          "HTML"
+        );
+      } catch {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPricingInvalid"),
+          adminKeyboard(language),
+          "HTML"
+        );
+      }
+      return c.json({ ok: true });
+    }
+    const pricingSlotsOnly = text.match(/^\s*PRICE\s+slots\s+(\d+(?:\.\d+)?)\s*$/i);
+    if (pricingSlotsOnly?.[1]) {
+      try {
+        await upsertPaymentPricing(c.env, { slotPackUsdtText: pricingSlotsOnly[1] });
+        const fps = await getPaymentPricingUsdt(c.env);
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPricingUpdated")
+            .replace("{sub}", escapeHtml(fps.subscriptionUsdtText))
+            .replace("{slots}", escapeHtml(fps.slotPackUsdtText)),
+          adminKeyboard(language),
+          "HTML"
+        );
+      } catch {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPricingInvalid"),
+          adminKeyboard(language),
+          "HTML"
+        );
+      }
       return c.json({ ok: true });
     }
     const promoRowDelIdxParsed = parsePromoRowDeleteOneBasedIndex(text);
@@ -3243,6 +3364,23 @@ bot.post("/telegram", async (c) => {
       kind: "al",
       replyKeyboard: adminKeyboard(language)
     });
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnAdminPricing")) {
+    if (!isAdmin) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      return c.json({ ok: true });
+    }
+    await setBotSession(c.env, userId, { flow: "section:admin" });
+    const pricingKbHtml = await formatAdminPricingPanelHtml(language, c.env);
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      pricingKbHtml,
+      adminKeyboard(language),
+      "HTML"
+    );
     return c.json({ ok: true });
   }
 
