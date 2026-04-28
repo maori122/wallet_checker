@@ -715,15 +715,15 @@ function buildWelcomeScreenHtml(
     return (
       `<b>VOROBEY: Track</b> – приватный трекинг транзакций криптокошельков.` +
       `\n\n<b>Управление через кнопки ниже.</b>` +
-      `\n\n<b>Отслеживаемые: ${walletsUsed} из ${walletMax} (свободно ${wFree})</b>` +
-      `\n<b>Знакомые кошельки: ${contactsUsed} из ${contactMax} (свободно ${cFree})</b>`
+      `\n\nОтслеживаемые: ${walletsUsed} из ${walletMax} (свободно ${wFree})` +
+      `\nЗнакомые кошельки: ${contactsUsed} из ${contactMax} (свободно ${cFree})`
     );
   }
   return (
     `<b>VOROBEY: Track</b> – private tracking of crypto wallet transactions.` +
     `\n\n<b>Use the buttons below.</b>` +
-    `\n\n<b>Tracked: ${walletsUsed} of ${walletMax} (${wFree} free)</b>` +
-    `\n<b>Known wallets: ${contactsUsed} of ${contactMax} (${cFree} free)</b>`
+    `\n\nTracked: ${walletsUsed} of ${walletMax} (${wFree} free)` +
+    `\nKnown wallets: ${contactsUsed} of ${contactMax} (${cFree} free)`
   );
 }
 
