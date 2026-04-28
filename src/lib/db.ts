@@ -1507,6 +1507,15 @@ export async function activatePaidSubscription(
   return getSubscriptionInfo(env, userId);
 }
 
+/** Cyrillic/Latin letters, any-script digits, underscores; case-insensitive compare after uppercase. */
+export function normalizePromoCodeForLookup(raw: string): string {
+  return raw.normalize("NFC").trim().toUpperCase();
+}
+
+function isValidPromoCodeFormat(normalized: string): boolean {
+  return /^[\p{L}\p{N}_-]{4,128}$/u.test(normalized);
+}
+
 export async function createPromoCodeEntry(
   env: Env,
   payload: {
@@ -1517,8 +1526,8 @@ export async function createPromoCodeEntry(
     isActive: boolean;
   }
 ): Promise<PromoCodeEntry> {
-  const normalizedCode = payload.code.trim().toUpperCase();
-  if (!/^[A-Z0-9_-]{4,64}$/.test(normalizedCode)) {
+  const normalizedCode = normalizePromoCodeForLookup(payload.code);
+  if (!isValidPromoCodeFormat(normalizedCode)) {
     throw new Error("PROMO_CODE_BAD_FORMAT");
   }
   const durationDays = Math.max(1, Math.floor(payload.durationDays));
@@ -1632,9 +1641,12 @@ export async function activatePromoCode(
   rawCode: string
 ): Promise<SubscriptionInfo> {
   await ensureSubscriptionRow(env, userId);
-  const code = rawCode.trim().toUpperCase();
+  const code = normalizePromoCodeForLookup(rawCode);
   if (!code) {
     throw new Error("PROMO_CODE_EMPTY");
+  }
+  if (!isValidPromoCodeFormat(code)) {
+    throw new Error("PROMO_CODE_BAD_FORMAT");
   }
 
   const promo = await env.DB.prepare(

@@ -334,7 +334,7 @@ api.post("/promo/activate", async (c) => {
     const userId = getUserId(c);
     const body = parseBody(
       z.object({
-        code: z.string().trim().min(1).max(64)
+        code: z.string().trim().min(1).max(128)
       }),
       await c.req.json()
     );
@@ -360,7 +360,7 @@ api.post("/admin/promo-codes", async (c) => {
     requireAdmin(c.env, getUserId(c));
     const body = parseBody(
       z.object({
-        code: z.string().trim().min(4).max(64),
+        code: z.string().trim().min(4).max(128),
         durationDays: z.coerce.number().int().min(1).max(3650),
         maxActivations: z.coerce.number().int().min(1).max(100000).nullable().optional(),
         bonusPercent: z.coerce.number().int().min(0).max(1000).optional(),

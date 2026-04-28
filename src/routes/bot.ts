@@ -186,10 +186,10 @@ const I18N = {
     adminLinksEmpty: "Лог ссылок пока пуст.",
     adminLinksTitle: "Кто какие ссылки добавлял",
     adminPromoAsk:
-      "Создать промокод — одна строка:\nCODE DAYS [MAX] [BONUS]\n\n• CODE — сам код, напр. SPRING2026\n• DAYS — дней подписки (база)\n• MAX — лимит вводов, можно пропустить\n• BONUS — по желанию: +% к дням. 30+20% = 36, не от суммы оплаты\n\nПримеры: SPRING2026 30 | SPRING2026 30 100 | SPRING2026 30 100 20",
+      "Создать промокод — одна строка:\nCODE DAYS [MAX] [BONUS]\n\n• CODE — латиница или кириллица, без пробелов, напр. ЛЕТО2026\n• DAYS — дней подписки (база)\n• MAX — лимит вводов, можно пропустить\n• BONUS — по желанию: +% к дням. 30+20% = 36, не от суммы оплаты\n\nПримеры: ЛЕТО2026 30 | SPRING2026 30 100 | ВЕСНА2026 30 100 20",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
-      "Формат неверный.\nИспользуйте: CODE DAYS [MAX] [BONUS]\nПример: SPRING2026 30 100 20",
+      "Формат неверный.\nИспользуйте: CODE DAYS [MAX] [BONUS]\nПример: ЛЕТО2026 30 100 20",
     btnWallets: "👁️ Отслеживаемые",
     btnContacts: "👥 Знакомые кошельки",
     btnSettings: "⚙️ Настройки",
@@ -1252,9 +1252,10 @@ async function sendTelegramMessage(
   text: string,
   replyMarkup?: ReplyMarkup,
   parseMode?: "HTML" | "MarkdownV2",
-  inlineKeyboard?: InlineReplyMarkup
+  inlineKeyboard?: InlineReplyMarkup,
+  options?: { preserveExistingMessages?: boolean }
 ): Promise<Response> {
-  if (replyMarkup || inlineKeyboard) {
+  if ((replyMarkup || inlineKeyboard) && !options?.preserveExistingMessages) {
     const previousIds = lastUiMessageIdsByChat.get(chatId);
     if (previousIds?.length) {
       for (const mid of previousIds) {
@@ -1431,14 +1432,14 @@ function buildAdminPromoGuideHtml(language: Language): string {
     return (
       "🎟️ <b>Создание промокода</b>\n\n" +
       "<code>CODE DAYS [MAX] [BONUS]</code>\n\n" +
-      "• <b>CODE</b> — ваш код, напр. <code>SPRING2026</code>\n" +
+      "• <b>CODE</b> — латиница или кириллица, напр. <code>ЛЕТО2026</code>\n" +
       "• <b>DAYS</b> — сколько дней подписки дать (база)\n" +
       "• <b>MAX</b> — лимит вводов, можно пропустить\n" +
       "• <b>BONUS</b> — по желанию: +% к <code>DAYS</code>, напр. 30+20% → 36 (не от оплаты)\n\n" +
       "<b>Примеры:</b>\n" +
-      "<code>SPRING2026 30</code>\n" +
-      "<code>SPRING2026 30 100</code>\n" +
-      "<code>SPRING2026 30 100 20</code>"
+      "<code>ЛЕТО2026 30</code>\n" +
+      "<code>ЛЕТО2026 30 100</code>\n" +
+      "<code>ВЕСНА2026 30 100 20</code>"
     );
   }
   return (
@@ -2190,7 +2191,9 @@ bot.post("/telegram", async (c) => {
             ? t(language, "promoExhausted")
             : code === "PROMO_CODE_EMPTY"
               ? t(language, "promoEmpty")
-              : t(language, "promoInvalid");
+              : code === "PROMO_CODE_BAD_FORMAT"
+                ? t(language, "promoInvalid")
+                : t(language, "promoInvalid");
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, errorText, cabinetKeyboard(language));
     }
     return c.json({ ok: true });
@@ -2523,7 +2526,10 @@ bot.post("/telegram", async (c) => {
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
         language === "ru" ? "✅ Платёж обработан." : "✅ Payment applied.",
-        cabinetKeyboard(language)
+        cabinetKeyboard(language),
+        undefined,
+        undefined,
+        { preserveExistingMessages: true }
       );
       return c.json({ ok: true });
     }
