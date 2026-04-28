@@ -12,6 +12,7 @@ import {
   createPromoCodeEntry,
   createWallet,
   deleteContact,
+  deletePromoCode,
   deleteWallet,
   type AdminDashboardStats,
   getBotSession,
@@ -195,6 +196,10 @@ const I18N = {
     adminPromoListEmpty: "Пока нет ни одного промокода. Сначала создайте кнопкой «Создать промокод».",
     adminPromoWhoHelp:
       "Чтобы узнать, кто уже активировал промокод, отправьте в чат: <code>PROMOWHO </code> + полный <b>🆔</b> нужной строки (32 символа, без пробелов в середине).",
+    adminPromoDeleteHelp:
+      "Чтобы удалить промокод, откройте список кнопкой «Промокоды» и нажмите <b>🗑</b> у нужной строки (или отправьте <code>DELPROMO </code> + полный <b>🆔</b> — 32 hex).",
+    adminPromoDeleted: "Промокод удалён.",
+    adminPromoDeleteNotFound: "Промокод не найден (неверный id или уже удалён).",
     adminPromoWhoEmpty: "По этому промокоду пока ни одной активации.",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
@@ -354,6 +359,10 @@ const I18N = {
     adminPromoListEmpty: "No promo codes yet. Create one first with «Create promo code».",
     adminPromoWhoHelp:
       "Who redeemed already: send <code>PROMOWHO </code> plus the full <b>🆔</b> line (32 hex chars) from the list above.",
+    adminPromoDeleteHelp:
+      "To delete a promo, open the list with «Promo codes» and tap <b>🗑</b> on the row (or send <code>DELPROMO </code> + full <b>🆔</b> — 32 hex).",
+    adminPromoDeleted: "Promo code deleted.",
+    adminPromoDeleteNotFound: "Promo code not found (invalid id or already deleted).",
     adminPromoWhoEmpty: "No activations for this promo yet.",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
@@ -1518,6 +1527,12 @@ function buildAdminPromoListHtml(
   }
   const chunks: string[] = [];
   chunks.push(`<b>🎟️ ${titleEscaped}</b>\n`);
+  chunks.push(
+    language === "ru"
+      ? "<i>Внизу под сообщением — кнопки 🗑 для удаления.</i>"
+      : "<i>Delete: use 🗑 buttons below this message.</i>"
+  );
+  chunks.push("");
 
   const maxLbl = language === "ru" ? "лимит" : "limit";
   const leftLbl = language === "ru" ? "осталось" : "left";
@@ -1551,6 +1566,21 @@ function buildAdminPromoListHtml(
         : "\n\n<i>…truncated.</i>");
   }
   return html;
+}
+
+function buildPromoDeleteInlineKeyboard(
+  language: Language,
+  items: Array<{ id: string; code: string }>
+): InlineReplyMarkup {
+  const prefix = "🗑 ";
+  const rows = items.map((p) => {
+    let label = prefix + p.code;
+    if (label.length > 64) {
+      label = prefix + p.code.slice(0, Math.max(0, 64 - prefix.length - 1)) + "…";
+    }
+    return [{ text: label, callback_data: `pdel:${p.id}` }];
+  });
+  return { inline_keyboard: rows };
 }
 
 function buildPromoWhoActivationsHtml(language: Language, rows: PromoActivationDetailRow[]): string {
@@ -1670,6 +1700,22 @@ bot.post("/telegram", async (c) => {
         }
       }
       await answerCallbackQuery(token, cq.id);
+      return c.json({ ok: true });
+    }
+    const pdelMatch = data.match(/^pdel:([a-f0-9]{32})$/i);
+    if (pdelMatch?.[1]) {
+      const settingsForDel = await getSettings(c.env, userId);
+      const languageDel = settingsForDel.language;
+      if (!isAdminUser(c.env, userId)) {
+        await answerCallbackQuery(token, cq.id, { text: t(languageDel, "adminOnly"), showAlert: true });
+        return c.json({ ok: true });
+      }
+      const promoIdToDelete = pdelMatch[1].toLowerCase();
+      const promoDelOk = await deletePromoCode(c.env, promoIdToDelete);
+      await answerCallbackQuery(token, cq.id, {
+        text: promoDelOk ? t(languageDel, "adminPromoDeleted") : t(languageDel, "adminPromoDeleteNotFound"),
+        showAlert: false
+      });
       return c.json({ ok: true });
     }
     await answerCallbackQuery(token, cq.id);
@@ -1803,6 +1849,28 @@ bot.post("/telegram", async (c) => {
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
         t(language, "adminPromoWhoHelp"),
+        adminKeyboard(language),
+        "HTML"
+      );
+      return c.json({ ok: true });
+    }
+    const delPromoMatch = text.match(/^\s*DELPROMO\s+([a-f0-9]{32})\s*$/i);
+    if (delPromoMatch?.[1]) {
+      const promoDeleteId = delPromoMatch[1].toLowerCase();
+      const promoDeletedOk = await deletePromoCode(c.env, promoDeleteId);
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        promoDeletedOk ? t(language, "adminPromoDeleted") : t(language, "adminPromoDeleteNotFound"),
+        adminKeyboard(language)
+      );
+      return c.json({ ok: true });
+    }
+    if (/^\s*DELPROMO\b/i.test(text.trim())) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "adminPromoDeleteHelp"),
         adminKeyboard(language),
         "HTML"
       );
@@ -3100,7 +3168,16 @@ bot.post("/telegram", async (c) => {
     await setBotSession(c.env, userId, { flow: "section:admin" });
     const items = await listPromoCodeEntries(c.env, 40);
     const html = buildAdminPromoListHtml(language, c.env, items);
-    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, html, adminKeyboard(language), "HTML");
+    const promoDelInline =
+      items.length > 0 ? buildPromoDeleteInlineKeyboard(language, items) : undefined;
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      html,
+      promoDelInline ? undefined : adminKeyboard(language),
+      "HTML",
+      promoDelInline
+    );
     return c.json({ ok: true });
   }
 

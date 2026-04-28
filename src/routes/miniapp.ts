@@ -313,6 +313,9 @@ function pageHtml(): string {
           copyPromoLink: "Копировать ссылку",
           deeplinkNeedsUsername: "Задайте TELEGRAM_BOT_USERNAME у воркера для ссылки.",
           whoActivated: "Кто активировал",
+          promoDeleteConfirm:
+            "Удалить этот промокод? Строки активаций в базе для него тоже будут удалены.",
+          promoDeletedOk: "Промокод удалён.",
           noActivationsYet: "Пока никто.",
           closePanel: "Закрыть",
           detectFailed: "Не удалось определить сеть.",
@@ -421,6 +424,9 @@ function pageHtml(): string {
           copyPromoLink: "Copy invite link",
           deeplinkNeedsUsername: "Set TELEGRAM_BOT_USERNAME on the worker for deeplinks.",
           whoActivated: "Who redeemed",
+          promoDeleteConfirm:
+            "Delete this promo code? Activation records for it will be removed from the database too.",
+          promoDeletedOk: "Promo code deleted.",
           noActivationsYet: "No activations yet.",
           closePanel: "Close",
           detectFailed: "Could not detect network.",
@@ -902,6 +908,11 @@ function pageHtml(): string {
               "'>" +
               tr("whoActivated") +
               "</button>" +
+              "<button type='button' class='btn bad' data-promo-delete='" +
+              esc(p.id) +
+              "'>" +
+              tr("delete") +
+              "</button>" +
               "</div></div>"
           );
         });
@@ -1168,6 +1179,21 @@ function pageHtml(): string {
               isActive: target.dataset.nextActive === "1"
             });
             toast(tr("promoStateUpdated"));
+            await loadAdmin();
+          } catch (e) { toast(e.message || "Error", true); }
+          return;
+        }
+        const promoDeleteId = target.dataset.promoDelete;
+        if (promoDeleteId) {
+          if (!confirm(tr("promoDeleteConfirm"))) return;
+          try {
+            await api("/admin/promo-codes/" + encodeURIComponent(promoDeleteId), "DELETE");
+            toast(tr("promoDeletedOk"));
+            const detailAfterDel = $("admin-promo-detail");
+            if (detailAfterDel) {
+              detailAfterDel.classList.add("hidden");
+              detailAfterDel.innerHTML = "";
+            }
             await loadAdmin();
           } catch (e) { toast(e.message || "Error", true); }
           return;

@@ -1689,6 +1689,15 @@ export async function setPromoCodeActiveState(
   return result.meta.changes > 0;
 }
 
+export async function deletePromoCode(env: Env, promoId: string): Promise<boolean> {
+  const normalized = promoId.trim().toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(normalized)) {
+    return false;
+  }
+  const result = await env.DB.prepare("DELETE FROM promo_codes WHERE id = ?").bind(normalized).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
 type PromoFetched = {
   id: string;
   code: string;

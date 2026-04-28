@@ -21,6 +21,7 @@ import {
   listLinkAuditEntries,
   listPendingSubscriptionPayments,
   listPromoActivationDetails,
+  deletePromoCode,
   listPromoCodeEntries,
   listStoppedWallets,
   listTopWalletReputations,
@@ -413,6 +414,16 @@ api.patch("/admin/promo-codes/:id", async (c) => {
     );
     const updated = await setPromoCodeActiveState(c.env, c.req.param("id"), body.isActive);
     return c.json({ ok: updated }, updated ? 200 : 404);
+  } catch (error) {
+    return c.json({ error: mapApiError(error) }, 400);
+  }
+});
+
+api.delete("/admin/promo-codes/:id", async (c) => {
+  try {
+    requireAdmin(c.env, getUserId(c));
+    const deleted = await deletePromoCode(c.env, c.req.param("id"));
+    return deleted ? c.json({ ok: true }) : c.json({ error: "Promo code not found." }, 404);
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 400);
   }
