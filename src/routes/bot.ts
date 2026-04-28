@@ -197,9 +197,13 @@ const I18N = {
     adminPromoWhoHelp:
       "Чтобы узнать, кто уже активировал промокод, отправьте в чат: <code>PROMOWHO </code> + полный <b>🆔</b> нужной строки (32 символа, без пробелов в середине).",
     adminPromoDeleteHelp:
-      "Чтобы удалить промокод, откройте список кнопкой «Промокоды» и нажмите <b>🗑</b> у нужной строки (или отправьте <code>DELPROMO </code> + полный <b>🆔</b> — 32 hex).",
+      "Удаление: откройте список кнопкой «Промокоды», затем отправьте <code>PDEL 1</code> (номер строки в списке выше вниз) или <code>DELPROMO </code> + полный <b>🆔</b> из строки промокода (32 hex).",
     adminPromoDeleted: "Промокод удалён.",
     adminPromoDeleteNotFound: "Промокод не найден (неверный id или уже удалён).",
+    adminPromoPdelStale:
+      "Сначала нажмите «Промокоды», чтобы загрузить список — после этого можно отправить <code>PDEL номер</code>.",
+    adminPromoPdelBadIndex:
+      "Некорректный номер. Укажите число от 1 до {max}, как у строк в последнем отправленном списке.",
     adminPromoWhoEmpty: "По этому промокоду пока ни одной активации.",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
@@ -360,9 +364,13 @@ const I18N = {
     adminPromoWhoHelp:
       "Who redeemed already: send <code>PROMOWHO </code> plus the full <b>🆔</b> line (32 hex chars) from the list above.",
     adminPromoDeleteHelp:
-      "To delete a promo, open the list with «Promo codes» and tap <b>🗑</b> on the row (or send <code>DELPROMO </code> + full <b>🆔</b> — 32 hex).",
+      "Delete: open the list with «Promo codes», then send <code>PDEL 1</code> (row number top-to-bottom) or <code>DELPROMO </code> + full <b>🆔</b> from the promo line (32 hex).",
     adminPromoDeleted: "Promo code deleted.",
     adminPromoDeleteNotFound: "Promo code not found (invalid id or already deleted).",
+    adminPromoPdelStale:
+      "Open «Promo codes» first to load the list — then you can send <code>PDEL number</code>.",
+    adminPromoPdelBadIndex:
+      "Invalid index. Use a number from 1 to {max} as in the last list above.",
     adminPromoWhoEmpty: "No activations for this promo yet.",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
@@ -1519,18 +1527,28 @@ function buildAdminPromoListHtml(
     maxActivations: number | null;
     remainingActivations: number | null;
     isActive: boolean;
-  }>
+  }>,
+  opts?: { noticeHtml?: string | null }
 ): string {
   const titleEscaped = escapeHtml(t(language, "adminPromoListTitle"));
   if (!items.length) {
-    return `<b>🎟️ ${titleEscaped}</b>\n\n${escapeHtml(t(language, "adminPromoListEmpty"))}`;
+    const emptyCore = `<b>🎟️ ${titleEscaped}</b>\n\n${escapeHtml(t(language, "adminPromoListEmpty"))}`;
+    if (opts?.noticeHtml) {
+      return `${opts.noticeHtml}\n\n${emptyCore}`;
+    }
+    return emptyCore;
   }
   const chunks: string[] = [];
   chunks.push(`<b>🎟️ ${titleEscaped}</b>\n`);
+  if (opts?.noticeHtml) {
+    chunks.push(opts.noticeHtml);
+    chunks.push("");
+  }
+  const top = items.length;
   chunks.push(
     language === "ru"
-      ? "<i>Внизу под сообщением — кнопки 🗑 для удаления.</i>"
-      : "<i>Delete: use 🗑 buttons below this message.</i>"
+      ? `<i><code>PDEL</code> + номер строки (например <code>PDEL 1</code> … <code>PDEL ${top}</code>) удаляет эту строку.</i>`
+      : `<i>Use <code>PDEL</code> + row number (e.g. <code>PDEL 1</code> … <code>PDEL ${top}</code>).</i>`
   );
   chunks.push("");
 
@@ -1538,14 +1556,15 @@ function buildAdminPromoListHtml(
   const leftLbl = language === "ru" ? "осталось" : "left";
   const usedLbl = language === "ru" ? "использовано" : "used";
 
-  for (const p of items) {
+  items.forEach((p, ix) => {
+    const rowNum = ix + 1;
     const max = p.maxActivations === null ? "∞" : String(p.maxActivations);
     const rem =
       p.remainingActivations === null || p.remainingActivations === undefined ? "∞" : String(p.remainingActivations);
     const active = p.isActive ? "✅" : "⛔";
     const url = telegramPromoStartUrl(env, p.id);
     chunks.push(
-      `<b>${escapeHtml(p.code)}</b> ${active} · ${p.durationDays}d · +${p.bonusPercent}%`,
+      `<b>${rowNum}. ${escapeHtml(p.code)}</b> ${active} · ${p.durationDays}d · +${p.bonusPercent}%`,
       language === "ru"
         ? `📊 ${usedLbl}: <b>${p.activationsCount}</b> / ${escapeHtml(max)} (${maxLbl}) · ${leftLbl}: <b>${escapeHtml(rem)}</b>`
         : `📊 ${usedLbl}: <b>${p.activationsCount}</b> / ${escapeHtml(max)} · ${leftLbl}: <b>${escapeHtml(rem)}</b>`,
@@ -1555,7 +1574,7 @@ function buildAdminPromoListHtml(
       chunks.push(`🔗 <code>${escapeHtml(url)}</code>`);
     }
     chunks.push("");
-  }
+  });
 
   let html = chunks.join("\n");
   if (html.length > 4080) {
@@ -1566,21 +1585,6 @@ function buildAdminPromoListHtml(
         : "\n\n<i>…truncated.</i>");
   }
   return html;
-}
-
-function buildPromoDeleteInlineKeyboard(
-  language: Language,
-  items: Array<{ id: string; code: string }>
-): InlineReplyMarkup {
-  const prefix = "🗑 ";
-  const rows = items.map((p) => {
-    let label = prefix + p.code;
-    if (label.length > 64) {
-      label = prefix + p.code.slice(0, Math.max(0, 64 - prefix.length - 1)) + "…";
-    }
-    return [{ text: label, callback_data: `pdel:${p.id}` }];
-  });
-  return { inline_keyboard: rows };
 }
 
 function buildPromoWhoActivationsHtml(language: Language, rows: PromoActivationDetailRow[]): string {
@@ -1702,22 +1706,6 @@ bot.post("/telegram", async (c) => {
       await answerCallbackQuery(token, cq.id);
       return c.json({ ok: true });
     }
-    const pdelMatch = data.match(/^pdel:([a-f0-9]{32})$/i);
-    if (pdelMatch?.[1]) {
-      const settingsForDel = await getSettings(c.env, userId);
-      const languageDel = settingsForDel.language;
-      if (!isAdminUser(c.env, userId)) {
-        await answerCallbackQuery(token, cq.id, { text: t(languageDel, "adminOnly"), showAlert: true });
-        return c.json({ ok: true });
-      }
-      const promoIdToDelete = pdelMatch[1].toLowerCase();
-      const promoDelOk = await deletePromoCode(c.env, promoIdToDelete);
-      await answerCallbackQuery(token, cq.id, {
-        text: promoDelOk ? t(languageDel, "adminPromoDeleted") : t(languageDel, "adminPromoDeleteNotFound"),
-        showAlert: false
-      });
-      return c.json({ ok: true });
-    }
     await answerCallbackQuery(token, cq.id);
     return c.json({ ok: true });
   }
@@ -1831,6 +1819,64 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, msg, adminKeyboard(language), "HTML");
       return c.json({ ok: true });
     }
+    const pdelIdxMatch = text.match(/^\s*PDEL\s+(\d+)\s*$/i);
+    if (pdelIdxMatch?.[1]) {
+      const idxParsed = Number.parseInt(pdelIdxMatch[1], 10);
+      const rawPromoIds = session?.payload?.promoListIds;
+      const promoIdsSnapshot = Array.isArray(rawPromoIds)
+        ? rawPromoIds.filter((id): id is string => typeof id === "string")
+        : [];
+      if (!promoIdsSnapshot.length) {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPromoPdelStale"),
+          adminKeyboard(language),
+          "HTML"
+        );
+        return c.json({ ok: true });
+      }
+      if (!Number.isFinite(idxParsed) || idxParsed < 1 || idxParsed > promoIdsSnapshot.length) {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPromoPdelBadIndex").replace("{max}", String(promoIdsSnapshot.length)),
+          adminKeyboard(language),
+          "HTML"
+        );
+        return c.json({ ok: true });
+      }
+      const targetPromoIdFromSnapshot = promoIdsSnapshot[idxParsed - 1] ?? "";
+      if (!/^[a-f0-9]{32}$/i.test(targetPromoIdFromSnapshot)) {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPromoPdelStale"),
+          adminKeyboard(language),
+          "HTML"
+        );
+        return c.json({ ok: true });
+      }
+      await deletePromoCode(c.env, targetPromoIdFromSnapshot.toLowerCase());
+      const itemsPdFresh = await listPromoCodeEntries(c.env, 40);
+      await setBotSession(c.env, userId, {
+        flow: "section:admin",
+        payload: { promoListIds: itemsPdFresh.map((it) => it.id) }
+      });
+      const pdNoticeHtml =
+        language === "ru" ? "<b>✅ Строка удалена.</b>" : "<b>✅ Row deleted.</b>";
+      const htmlPdRefresh = buildAdminPromoListHtml(language, c.env, itemsPdFresh, {
+        noticeHtml: pdNoticeHtml
+      });
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        htmlPdRefresh,
+        adminKeyboard(language),
+        "HTML"
+      );
+      return c.json({ ok: true });
+    }
     const promoWhoMatch = text.match(/^\s*PROMOWHO\s+([a-f0-9]{32})\s*$/i);
     if (promoWhoMatch?.[1]) {
       const pid = promoWhoMatch[1].toLowerCase();
@@ -1856,13 +1902,33 @@ bot.post("/telegram", async (c) => {
     }
     const delPromoMatch = text.match(/^\s*DELPROMO\s+([a-f0-9]{32})\s*$/i);
     if (delPromoMatch?.[1]) {
-      const promoDeleteId = delPromoMatch[1].toLowerCase();
-      const promoDeletedOk = await deletePromoCode(c.env, promoDeleteId);
+      const promoDeleteIdHex = delPromoMatch[1].toLowerCase();
+      const promoDeletedOk = await deletePromoCode(c.env, promoDeleteIdHex);
+      if (!promoDeletedOk) {
+        await sendTelegramMessage(
+          c.env.TELEGRAM_BOT_TOKEN,
+          message.chat.id,
+          t(language, "adminPromoDeleteNotFound"),
+          adminKeyboard(language)
+        );
+        return c.json({ ok: true });
+      }
+      const itemsAfterPromoDel = await listPromoCodeEntries(c.env, 40);
+      await setBotSession(c.env, userId, {
+        flow: "section:admin",
+        payload: { promoListIds: itemsAfterPromoDel.map((it) => it.id) }
+      });
+      const delNoticeHtml =
+        language === "ru" ? "<b>✅ Промокод удалён.</b>" : "<b>✅ Promo code deleted.</b>";
+      const htmlAfterPromoDel = buildAdminPromoListHtml(language, c.env, itemsAfterPromoDel, {
+        noticeHtml: delNoticeHtml
+      });
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        promoDeletedOk ? t(language, "adminPromoDeleted") : t(language, "adminPromoDeleteNotFound"),
-        adminKeyboard(language)
+        htmlAfterPromoDel,
+        adminKeyboard(language),
+        "HTML"
       );
       return c.json({ ok: true });
     }
@@ -3165,32 +3231,19 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
       return c.json({ ok: true });
     }
-    await setBotSession(c.env, userId, { flow: "section:admin" });
-    const items = await listPromoCodeEntries(c.env, 40);
-    const html = buildAdminPromoListHtml(language, c.env, items);
-    const promoDelInline =
-      items.length > 0 ? buildPromoDeleteInlineKeyboard(language, items) : undefined;
+    const itemsPmList = await listPromoCodeEntries(c.env, 40);
+    await setBotSession(c.env, userId, {
+      flow: "section:admin",
+      payload: { promoListIds: itemsPmList.map((it) => it.id) }
+    });
+    const promoListHtml = buildAdminPromoListHtml(language, c.env, itemsPmList);
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      html,
-      promoDelInline ? undefined : adminKeyboard(language),
-      "HTML",
-      promoDelInline
+      promoListHtml,
+      adminKeyboard(language),
+      "HTML"
     );
-    // Reply and inline keyboards cannot be attached to the same sendMessage — follow up with
-    // admin reply keyboard without deleting or replacing the tracked list message above.
-    if (promoDelInline) {
-      await sendTelegramMessage(
-        c.env.TELEGRAM_BOT_TOKEN,
-        message.chat.id,
-        "\u2060",
-        adminKeyboard(language),
-        undefined,
-        undefined,
-        { preserveExistingMessages: true, omitTrackedSurfaceUpdate: true }
-      );
-    }
     return c.json({ ok: true });
   }
 
