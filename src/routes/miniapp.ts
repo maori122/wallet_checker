@@ -166,6 +166,14 @@ function pageHtml(): string {
 
       <section id="admin" class="panel hidden">
         <div class="card">
+          <h3 id="admin-pricing-title">Pricing (USDT)</h3>
+          <div class="grid">
+            <div class="row"><label id="admin-price-sub-label">Subscription (30 days)</label><input id="admin-price-sub" type="text" inputmode="decimal" autocomplete="off" /></div>
+            <div class="row"><label id="admin-price-slots-label">+10 slots pack</label><input id="admin-price-slots" type="text" inputmode="decimal" autocomplete="off" /></div>
+            <div class="btns"><button class="btn primary" id="admin-pricing-save" type="button">Save prices</button></div>
+          </div>
+        </div>
+        <div class="card">
           <h3 id="admin-promo-create-title">Generate promo code</h3>
           <div class="grid">
             <div class="row"><label id="admin-promo-code-label">Code</label><input id="admin-promo-code" placeholder="SPRING2026" /></div>
@@ -210,7 +218,18 @@ function pageHtml(): string {
       const tgLanguageCode = String(tg?.initDataUnsafe?.user?.language_code || "").toLowerCase();
       const initialLang = tgLanguageCode.startsWith("ru") ? "ru" : "en";
 
-      const state = { me: null, wallets: [], contacts: [], history: [], subscription: null, payment: null, activeSlotPack: null, summary: null, lang: initialLang };
+      const state = {
+        me: null,
+        wallets: [],
+        contacts: [],
+        history: [],
+        subscription: null,
+        payment: null,
+        activeSlotPack: null,
+        summary: null,
+        pricing: null,
+        lang: initialLang
+      };
       const $ = (id) => document.getElementById(id);
       const L10N = {
         ru: {
@@ -240,7 +259,12 @@ function pageHtml(): string {
           network: "Сеть",
           createInvoice: "Создать счет",
           checkPayment: "Проверить оплату",
-          slotPackHeading: "+10 слотов (10 USDT)",
+          slotPackHeadingTpl: "+10 слотов ({amt} USDT)",
+          adminPricingTitle: "Цены (USDT)",
+          adminPriceSubscription: "Подписка, 30 дней",
+          adminPriceSlots: "+10 слотов к пакете",
+          adminPricingSave: "Сохранить цены",
+          pricingSaved: "Цены обновлены",
           slotPackCreate: "Счёт +10 слотов",
           pendingSubInvoice: "Подписка",
           pendingSlotInvoice: "Пакет +10 слотов",
@@ -351,7 +375,12 @@ function pageHtml(): string {
           network: "Network",
           createInvoice: "Create invoice",
           checkPayment: "Check payment",
-          slotPackHeading: "+10 slots (10 USDT)",
+          slotPackHeadingTpl: "+10 slots ({amt} USDT)",
+          adminPricingTitle: "Pricing (USDT)",
+          adminPriceSubscription: "Subscription (30 days)",
+          adminPriceSlots: "+10 wallet slots pack",
+          adminPricingSave: "Save prices",
+          pricingSaved: "Prices updated",
           slotPackCreate: "Create slot invoice",
           pendingSubInvoice: "Subscription",
           pendingSlotInvoice: "Slot pack +10",
@@ -439,6 +468,17 @@ function pageHtml(): string {
       function tr(key) {
         return (L10N[state.lang] && L10N[state.lang][key]) || L10N.en[key] || key;
       }
+      function applyPricingUi() {
+        const p = state.pricing;
+        const subAmt = (p && p.subscriptionUsdt) || "15";
+        const slotAmt = (p && p.slotPackUsdt) || "10";
+        const slotHead = $("slot-pack-heading");
+        if (slotHead) slotHead.textContent = tr("slotPackHeadingTpl").replace("{amt}", slotAmt);
+        const subEl = $("admin-price-sub");
+        const slotEl = $("admin-price-slots");
+        if (subEl) subEl.value = subAmt;
+        if (slotEl) slotEl.value = slotAmt;
+      }
       function msg(ru, en) {
         return state.lang === "en" ? en : ru;
       }
@@ -482,8 +522,7 @@ function pageHtml(): string {
         $("pay-network-label").textContent = tr("network");
         $("pay-create").textContent = tr("createInvoice");
         $("pay-check").textContent = tr("checkPayment");
-        const slotHead = $("slot-pack-heading");
-        if (slotHead) slotHead.textContent = tr("slotPackHeading");
+        applyPricingUi();
         const paySlotsNet = $("pay-slots-network-label");
         if (paySlotsNet) paySlotsNet.textContent = tr("network");
         const paySlotsBtn = $("pay-slots-create");
@@ -497,6 +536,14 @@ function pageHtml(): string {
         $("settings-eth-label").textContent = tr("ethThreshold");
         $("settings-usdt-label").textContent = tr("usdtThreshold");
         $("settings-save").textContent = tr("saveSettings");
+        const admPriceTitle = $("admin-pricing-title");
+        if (admPriceTitle) admPriceTitle.textContent = tr("adminPricingTitle");
+        const lblSubPrice = $("admin-price-sub-label");
+        if (lblSubPrice) lblSubPrice.textContent = tr("adminPriceSubscription");
+        const lblSlotPrice = $("admin-price-slots-label");
+        if (lblSlotPrice) lblSlotPrice.textContent = tr("adminPriceSlots");
+        const btnSavPrice = $("admin-pricing-save");
+        if (btnSavPrice) btnSavPrice.textContent = tr("adminPricingSave");
         const promoCreateTitle = $("admin-promo-create-title");
         if (promoCreateTitle) promoCreateTitle.textContent = tr("generatePromoCode");
         const promoCodeLabel = $("admin-promo-code-label");
@@ -743,6 +790,8 @@ function pageHtml(): string {
         state.subscription = data.subscription;
         state.payment = data.activePayment;
         state.activeSlotPack = data.activeSlotPack;
+        state.pricing = data.pricing || state.pricing;
+        applyPricingUi();
         const s = data.subscription;
         $("cabinet-subscription").innerHTML =
           "<div><b>" + tr("plan") + ":</b> <code>" +
@@ -1113,6 +1162,17 @@ function pageHtml(): string {
           $("admin-slots-user").value = "";
           $("admin-slots-w").value = "0";
           $("admin-slots-c").value = "0";
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("admin-pricing-save").addEventListener("click", async () => {
+        try {
+          await api("/admin/pricing", "PATCH", {
+            subscriptionUsdt: $("admin-price-sub").value.trim(),
+            slotPackUsdt: $("admin-price-slots").value.trim()
+          });
+          toast(tr("pricingSaved"));
+          await loadSubscription();
         } catch (e) { toast(e.message || "Error", true); }
       });
 

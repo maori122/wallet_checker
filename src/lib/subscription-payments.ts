@@ -6,6 +6,7 @@ import {
   createSubscriptionPaymentRequest,
   getActiveSlotPackPaymentRequest,
   getActiveSubscriptionPaymentRequest,
+  getPaymentPricingUsdt,
   getSettings,
   listPendingSubscriptionPayments,
   markSubscriptionPaymentExpired,
@@ -13,8 +14,6 @@ import {
 } from "./db";
 
 const PLAN_DURATION_DAYS = 30;
-const SUBSCRIPTION_BASE_AMOUNT_USDT = 15;
-const SLOT_PACK_AMOUNT_USDT = 10;
 const SLOT_PACK_WALLET_SLOTS = 10;
 const PAYMENT_REQUEST_TTL_MINUTES = 45;
 const EVM_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
@@ -65,14 +64,6 @@ function formatIsoForLanguage(value: string, language: Language): string {
     minute: "2-digit",
     hour12: false
   }).format(date);
-}
-
-function makeSubscriptionAmountText(): string {
-  return String(SUBSCRIPTION_BASE_AMOUNT_USDT);
-}
-
-function makeSlotPackAmountText(): string {
-  return String(SLOT_PACK_AMOUNT_USDT);
 }
 
 async function sendTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
@@ -305,7 +296,7 @@ export async function createSubscriptionPaymentInvoice(
   durationDays: number;
 }> {
   const existing = await getActiveSubscriptionPaymentRequest(env, userId);
-  const expectedAmount = makeSubscriptionAmountText();
+  const expectedAmount = (await getPaymentPricingUsdt(env)).subscriptionUsdtText;
   const expectedAddress = network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env);
   if (
     existing &&
@@ -366,7 +357,7 @@ export async function createSlotPackPaymentInvoice(
   durationDays: number;
 }> {
   const existing = await getActiveSlotPackPaymentRequest(env, userId);
-  const expectedAmount = makeSlotPackAmountText();
+  const expectedAmount = (await getPaymentPricingUsdt(env)).slotPackUsdtText;
   const expectedAddress = network === "bsc" ? getEvmPayAddress(env) : getTronPayAddress(env);
   if (
     existing &&

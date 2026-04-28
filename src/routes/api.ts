@@ -25,12 +25,14 @@ import {
   listPromoCodeEntries,
   listStoppedWallets,
   listTopWalletReputations,
+  getPaymentPricingUsdt,
   listTransferHistory,
   listWallets,
   removeStoppedWallet,
   setPromoCodeActiveState,
   updateContactLabel,
-  updateSettings
+  updateSettings,
+  upsertPaymentPricing
 } from "../lib/db";
 import { getWalletBalances } from "../lib/wallet-insights";
 import {
@@ -121,6 +123,9 @@ function mapApiError(error: unknown): string {
   }
   if (message === "FORBIDDEN_SUBSCRIPTION_REQUIRED") {
     return "Subscription required. Pay subscription first.";
+  }
+  if (message === "INVALID_PRICING_AMOUNT") {
+    return "Invalid USDT amount (use positive number, for example 15 or 9.99).";
   }
   return message;
 }
@@ -276,12 +281,21 @@ api.put("/settings", async (c) => {
 
 api.get("/subscription", async (c) => {
   const userId = getUserId(c);
-  const [subscription, activePayment, activeSlotPack] = await Promise.all([
+  const [subscription, activePayment, activeSlotPack, pricing] = await Promise.all([
     getSubscriptionInfo(c.env, userId),
     getActiveSubscriptionPaymentRequest(c.env, userId),
-    getActiveSlotPackPaymentRequest(c.env, userId)
+    getActiveSlotPackPaymentRequest(c.env, userId),
+    getPaymentPricingUsdt(c.env)
   ]);
-  return c.json({ subscription, activePayment, activeSlotPack });
+  return c.json({
+    subscription,
+    activePayment,
+    activeSlotPack,
+    pricing: {
+      subscriptionUsdt: pricing.subscriptionUsdtText,
+      slotPackUsdt: pricing.slotPackUsdtText
+    }
+  });
 });
 
 api.post("/subscription/invoice", async (c) => {
@@ -490,6 +504,43 @@ api.get("/admin/wallet-reputation", async (c) => {
     return c.json({ items });
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 403);
+  }
+});
+
+api.patch("/admin/pricing", async (c) => {
+  try {
+    requireAdmin(c.env, getUserId(c));
+    const body = parseBody(
+      z
+        .object({
+          subscriptionUsdt: z.string().trim().min(1).max(32).optional(),
+          slotPackUsdt: z.string().trim().min(1).max(32).optional()
+        })
+        .refine((d) => d.subscriptionUsdt !== undefined || d.slotPackUsdt !== undefined, {
+          message: "At least one price field is required"
+        }),
+      await c.req.json()
+    );
+    let pricing;
+    try {
+      pricing = await upsertPaymentPricing(c.env, {
+        subscriptionUsdtText: body.subscriptionUsdt,
+        slotPackUsdtText: body.slotPackUsdt
+      });
+    } catch (e) {
+      if ((e as Error).message === "INVALID_PRICING_AMOUNT") {
+        throw new Error("INVALID_PRICING_AMOUNT");
+      }
+      throw e;
+    }
+    return c.json({
+      pricing: {
+        subscriptionUsdt: pricing.subscriptionUsdtText,
+        slotPackUsdt: pricing.slotPackUsdtText
+      }
+    });
+  } catch (error) {
+    return c.json({ error: mapApiError(error) }, 400);
   }
 });
 

@@ -23,6 +23,7 @@ import {
   getWalletReputationByAddress,
   getSettings,
   getActiveSlotPackPaymentRequest,
+  getPaymentPricingUsdt,
   addExtraContactSlots,
   addExtraWalletSlots,
   getAdminDashboardStats,
@@ -241,7 +242,8 @@ const I18N = {
     btnActivatePromo: "🎟️ Активировать промокод",
     btnPaySubscription: "💳 Оплатить подписку",
     btnPaySlotPack: "➕ +10 слотов",
-    slotPackPaymentChooseNetwork: "Выберите сеть (10 USDT = +10 слотов для отслеживаемых кошельков).",
+    slotPackPaymentChooseNetwork:
+      "Выберите сеть ({amount} USDT = +10 слотов для отслеживаемых кошельков).",
     slotPackInvoiceTitle: "Пакет: +10 слотов",
     adminSlotsHelp:
       "Команда слотов: <code>SLOTS &lt;telegram_id&gt; &lt;+кош&gt; &lt;+контакты&gt;</code>\nПример: <code>SLOTS 123456789 10 0</code> — +10 кошельков, контакты без изменений.",
@@ -404,7 +406,7 @@ const I18N = {
     btnActivatePromo: "🎟️ Activate promo code",
     btnPaySubscription: "💳 Pay subscription",
     btnPaySlotPack: "➕ +10 slots",
-    slotPackPaymentChooseNetwork: "Choose a network (10 USDT = +10 wallet slots).",
+    slotPackPaymentChooseNetwork: "Choose a network ({amount} USDT = +10 wallet slots).",
     slotPackInvoiceTitle: "Pack: +10 slots",
     adminSlotsHelp:
       "Slot command: <code>SLOTS &lt;telegram_id&gt; &lt;+wallets&gt; &lt;+contacts&gt;</code>\nExample: <code>SLOTS 123456789 10 0</code>",
@@ -1620,6 +1622,11 @@ function buildPromoWhoActivationsHtml(language: Language, rows: PromoActivationD
   return header + lines.join("\n\n");
 }
 
+async function resolveSlotPackNetworkPrompt(language: Language, env: Env): Promise<string> {
+  const amount = (await getPaymentPricingUsdt(env)).slotPackUsdtText;
+  return t(language, "slotPackPaymentChooseNetwork").replace("{amount}", amount);
+}
+
 bot.post("/telegram", async (c) => {
   const secret = c.req.header("x-telegram-bot-api-secret-token");
   if (!secret || secret !== c.env.TELEGRAM_WEBHOOK_SECRET) {
@@ -2473,7 +2480,7 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
-        t(language, "slotPackPaymentChooseNetwork"),
+        await resolveSlotPackNetworkPrompt(language, c.env),
         paymentNetworkKeyboard(language)
       );
       return c.json({ ok: true });
@@ -2849,7 +2856,7 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      t(language, "slotPackPaymentChooseNetwork"),
+      await resolveSlotPackNetworkPrompt(language, c.env),
       paymentNetworkKeyboard(language)
     );
     return c.json({ ok: true });

@@ -1923,3 +1923,88 @@ export async function setBotSession(env: Env, userId: string, state: StoredBotSe
 export async function clearBotSession(env: Env, userId: string): Promise<void> {
   await env.DB.prepare("DELETE FROM user_sessions WHERE user_id = ?").bind(userId).run();
 }
+
+export const PRICING_KEY_SUBSCRIPTION_USDT = "pricing_subscription_usdt";
+export const PRICING_KEY_SLOT_PACK_USDT = "pricing_slot_pack_usdt";
+export const DEFAULT_PRICING_SUBSCRIPTION_USDT = "15";
+export const DEFAULT_PRICING_SLOT_PACK_USDT = "10";
+
+export function isValidUsdtAmountText(raw: string): boolean {
+  const t = raw.trim();
+  if (!/^\d+(\.\d{1,18})?$/.test(t)) {
+    return false;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 && n <= 1_000_000_000;
+}
+
+/** Canonical string for invoices and chain matching (matches parseDecimalToUnits in subscription-payments). */
+export function canonicalUsdtPricingText(raw: string): string {
+  if (!isValidUsdtAmountText(raw)) {
+    throw new Error("INVALID_PRICING_AMOUNT");
+  }
+  const t = raw.trim();
+  const n = Number(t);
+  const s = n.toFixed(8).replace(/\.?0+$/, "");
+  return s === "" ? t : s;
+}
+
+export type PaymentPricingTexts = {
+  subscriptionUsdtText: string;
+  slotPackUsdtText: string;
+};
+
+export async function getPaymentPricingUsdt(env: Env): Promise<PaymentPricingTexts> {
+  const result = await env.DB.prepare(
+    `SELECT key, value FROM app_settings WHERE key IN (?, ?)`
+  )
+    .bind(PRICING_KEY_SUBSCRIPTION_USDT, PRICING_KEY_SLOT_PACK_USDT)
+    .all<{ key: string; value: string }>();
+  const map = new Map((result.results ?? []).map((r) => [r.key, r.value]));
+  const subRaw = map.get(PRICING_KEY_SUBSCRIPTION_USDT);
+  const slotRaw = map.get(PRICING_KEY_SLOT_PACK_USDT);
+  let subscriptionUsdtText = DEFAULT_PRICING_SUBSCRIPTION_USDT;
+  let slotPackUsdtText = DEFAULT_PRICING_SLOT_PACK_USDT;
+  try {
+    if (subRaw?.trim() && isValidUsdtAmountText(subRaw)) {
+      subscriptionUsdtText = canonicalUsdtPricingText(subRaw);
+    }
+  } catch {
+    // keep default
+  }
+  try {
+    if (slotRaw?.trim() && isValidUsdtAmountText(slotRaw)) {
+      slotPackUsdtText = canonicalUsdtPricingText(slotRaw);
+    }
+  } catch {
+    // keep default
+  }
+  return { subscriptionUsdtText, slotPackUsdtText };
+}
+
+export async function upsertPaymentPricing(
+  env: Env,
+  updates: { subscriptionUsdtText?: string; slotPackUsdtText?: string }
+): Promise<PaymentPricingTexts> {
+  if (updates.subscriptionUsdtText !== undefined) {
+    const v = canonicalUsdtPricingText(updates.subscriptionUsdtText);
+    await env.DB
+      .prepare(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`
+      )
+      .bind(PRICING_KEY_SUBSCRIPTION_USDT, v)
+      .run();
+  }
+  if (updates.slotPackUsdtText !== undefined) {
+    const v = canonicalUsdtPricingText(updates.slotPackUsdtText);
+    await env.DB
+      .prepare(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`
+      )
+      .bind(PRICING_KEY_SLOT_PACK_USDT, v)
+      .run();
+  }
+  return getPaymentPricingUsdt(env);
+}
