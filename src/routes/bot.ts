@@ -94,9 +94,6 @@ type WalletNetwork = "btc" | "eth" | "bsc" | "trc20";
 
 const I18N = {
   ru: {
-    greet: "VOROBEY: Track — приватный трекинг транзакций криптокошельков. Управляйте кошельками, знакомыми адресами и настройками через кнопки ниже.",
-    greetQuotaLine:
-      "Квоты: отслеживаемые {wUsed}/{wMax} (свободно {wFree}), знакомые {cUsed}/{cMax} (свободно {cFree}).",
     listQuotaWallets: "Занято {used} из {max} · Можно добавить ещё: {free}",
     listQuotaContacts: "Занято {used} из {max} · Можно добавить ещё: {free}",
     unknown: "Не понял сообщение. Выберите действие кнопкой меню.",
@@ -197,11 +194,11 @@ const I18N = {
     adminPromoWhoHelp:
       "Чтобы узнать, кто уже активировал промокод, отправьте в чат: <code>PROMOWHO </code> + полный <b>🆔</b> нужной строки (32 символа, без пробелов в середине).",
     adminPromoDeleteHelp:
-      "Удаление: откройте список кнопкой «Промокоды», затем отправьте <code>PDEL 1</code> (номер строки в списке выше вниз) или <code>DELPROMO </code> + полный <b>🆔</b> из строки промокода (32 hex).",
+      "Удаление: откройте список кнопкой «Промокоды», затем отправьте в чат, например, <b>Удалить 1</b> (номер строки сверху вниз) либо <code>DELPROMO </code> + полный <b>🆔</b> из строки промокода.",
     adminPromoDeleted: "Промокод удалён.",
     adminPromoDeleteNotFound: "Промокод не найден (неверный id или уже удалён).",
     adminPromoPdelStale:
-      "Сначала нажмите «Промокоды», чтобы загрузить список — после этого можно отправить <code>PDEL номер</code>.",
+      "Сначала нажмите «Промокоды», чтобы обновить список — затем можно написать, например: <b>Удалить 1</b>.",
     adminPromoPdelBadIndex:
       "Некорректный номер. Укажите число от 1 до {max}, как у строк в последнем отправленном списке.",
     adminPromoWhoEmpty: "По этому промокоду пока ни одной активации.",
@@ -260,8 +257,6 @@ const I18N = {
     serviceState: "Сервисные уведомления: {state}"
   },
   en: {
-    greet: "VOROBEY: Track — private tracking of crypto wallet transactions. Use the buttons below to manage wallets, contacts, and settings.",
-    greetQuotaLine: "Quotas: tracked {wUsed}/{wMax} ({wFree} free), known {cUsed}/{cMax} ({cFree} free).",
     listQuotaWallets: "In use: {used} of {max} · You can add: {free} more",
     listQuotaContacts: "In use: {used} of {max} · You can add: {free} more",
     unknown: "I did not understand. Please choose an action from the menu.",
@@ -364,11 +359,11 @@ const I18N = {
     adminPromoWhoHelp:
       "Who redeemed already: send <code>PROMOWHO </code> plus the full <b>🆔</b> line (32 hex chars) from the list above.",
     adminPromoDeleteHelp:
-      "Delete: open the list with «Promo codes», then send <code>PDEL 1</code> (row number top-to-bottom) or <code>DELPROMO </code> + full <b>🆔</b> from the promo line (32 hex).",
+      "Delete: open «Promo codes», then send e.g. <b>Delete 1</b> (row top-to-bottom), or <code>DELPROMO </code> + full <b>🆔</b> from the promo line.",
     adminPromoDeleted: "Promo code deleted.",
     adminPromoDeleteNotFound: "Promo code not found (invalid id or already deleted).",
     adminPromoPdelStale:
-      "Open «Promo codes» first to load the list — then you can send <code>PDEL number</code>.",
+      "Open «Promo codes» first to refresh the list — then send e.g. <b>Delete 1</b>.",
     adminPromoPdelBadIndex:
       "Invalid index. Use a number from 1 to {max} as in the last list above.",
     adminPromoWhoEmpty: "No activations for this promo yet.",
@@ -707,7 +702,7 @@ function quotaContactsLineHtml(language: Language, used: number, max: number): s
   return `<i>${escapeHtml(quotaPlainContacts(language, used, max))}</i>`;
 }
 
-function formatGreetQuotaLine(
+function buildWelcomeScreenHtml(
   language: Language,
   walletsUsed: number,
   contactsUsed: number,
@@ -716,13 +711,39 @@ function formatGreetQuotaLine(
 ): string {
   const wFree = Math.max(0, walletMax - walletsUsed);
   const cFree = Math.max(0, contactMax - contactsUsed);
-  return t(language, "greetQuotaLine")
-    .replace("{wUsed}", String(walletsUsed))
-    .replace("{wMax}", String(walletMax))
-    .replace("{wFree}", String(wFree))
-    .replace("{cUsed}", String(contactsUsed))
-    .replace("{cMax}", String(contactMax))
-    .replace("{cFree}", String(cFree));
+  if (language === "ru") {
+    return (
+      `<b>VOROBEY: Track</b> – приватный трекинг транзакций криптокошельков.` +
+      `\n\n<b>Управление через кнопки ниже.</b>` +
+      `\n\n<b>Отслеживаемые: ${walletsUsed} из ${walletMax} (свободно ${wFree})</b>` +
+      `\n<b>Знакомые кошельки: ${contactsUsed} из ${contactMax} (свободно ${cFree})</b>`
+    );
+  }
+  return (
+    `<b>VOROBEY: Track</b> – private tracking of crypto wallet transactions.` +
+    `\n\n<b>Use the buttons below.</b>` +
+    `\n\n<b>Tracked: ${walletsUsed} of ${walletMax} (${wFree} free)</b>` +
+    `\n<b>Known wallets: ${contactsUsed} of ${contactMax} (${cFree} free)</b>`
+  );
+}
+
+/** 1-based row index from typed admin promo delete phrases (supports legacy PDEL). */
+function parsePromoRowDeleteOneBasedIndex(textTrimmed: string): number | null {
+  const s = textTrimmed.trim();
+  const variants = [
+    /^PDEL\s+(\d+)\s*$/i,
+    /^Delete\s+(\d+)\s*$/i,
+    /^Удалить\s+(\d+)\s*$/,
+    /^удалить\s+(\d+)\s*$/
+  ];
+  for (const re of variants) {
+    const m = s.match(re);
+    if (m?.[1]) {
+      const n = Number.parseInt(m[1], 10);
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+  return null;
 }
 
 async function loadPagedListContent(
@@ -1547,8 +1568,8 @@ function buildAdminPromoListHtml(
   const top = items.length;
   chunks.push(
     language === "ru"
-      ? `<i><code>PDEL</code> + номер строки (например <code>PDEL 1</code> … <code>PDEL ${top}</code>) удаляет эту строку.</i>`
-      : `<i>Use <code>PDEL</code> + row number (e.g. <code>PDEL 1</code> … <code>PDEL ${top}</code>).</i>`
+      ? `<i>Удалить строку: напишите в чат, например, <b>Удалить 1</b> … <b>Удалить ${top}</b> (номер совпадает с нумерацией ниже).</i>`
+      : `<i>Remove a row: send e.g. <b>Delete 1</b> … <b>Delete ${top}</b> (numbers match the list).</i>`
   );
   chunks.push("");
 
@@ -1773,21 +1794,29 @@ bot.post("/telegram", async (c) => {
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
-    let welcomeText = hasBotAccess ? t(language, "greet") : t(language, "accessRequiredHtml");
+    let welcomeText: string;
     if (hasBotAccess) {
       const [walletsG, contactsG, summaryG] = await Promise.all([
         listWallets(c.env, userId),
         listContacts(c.env, userId),
         getUsageSummary(c.env, userId)
       ]);
-      welcomeText += "\n\n" + formatGreetQuotaLine(language, walletsG.length, contactsG.length, summaryG.walletLimit, summaryG.contactLimit);
+      welcomeText = buildWelcomeScreenHtml(
+        language,
+        walletsG.length,
+        contactsG.length,
+        summaryG.walletLimit,
+        summaryG.contactLimit
+      );
+    } else {
+      welcomeText = t(language, "accessRequiredHtml");
     }
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       welcomeText,
       mainKeyboard(language, isAdmin, hasBotAccess),
-      hasBotAccess ? undefined : "HTML"
+      "HTML"
     );
     return c.json({ ok: true });
   }
@@ -1819,9 +1848,9 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, msg, adminKeyboard(language), "HTML");
       return c.json({ ok: true });
     }
-    const pdelIdxMatch = text.match(/^\s*PDEL\s+(\d+)\s*$/i);
-    if (pdelIdxMatch?.[1]) {
-      const idxParsed = Number.parseInt(pdelIdxMatch[1], 10);
+    const promoRowDelIdxParsed = parsePromoRowDeleteOneBasedIndex(text);
+    if (promoRowDelIdxParsed !== null) {
+      const idxParsed = promoRowDelIdxParsed;
       const rawPromoIds = session?.payload?.promoListIds;
       const promoIdsSnapshot = Array.isArray(rawPromoIds)
         ? rawPromoIds.filter((id): id is string => typeof id === "string")
