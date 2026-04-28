@@ -175,7 +175,7 @@ function pageHtml(): string {
             <div class="btns"><button class="btn primary" id="admin-promo-create">Create promo</button></div>
           </div>
         </div>
-        <div class="card"><h3 id="admin-promo-list-title">Promo codes</h3><div id="admin-promo-list"></div></div>
+        <div class="card"><h3 id="admin-promo-list-title">Promo codes</h3><div id="admin-promo-list"></div><div id="admin-promo-detail"></div></div>
         <div class="card">
           <h3 id="admin-stop-title">Stop wallets</h3>
           <div class="grid">
@@ -308,6 +308,13 @@ function pageHtml(): string {
           walletDeleted: "Кошелек удален.",
           contactDeleted: "Контакт удален.",
           promoStateUpdated: "Статус промокода обновлен.",
+          promoUsedQuota: "Использовано",
+          remainingActivations: "Осталось активаций",
+          copyPromoLink: "Копировать ссылку",
+          deeplinkNeedsUsername: "Задайте TELEGRAM_BOT_USERNAME у воркера для ссылки.",
+          whoActivated: "Кто активировал",
+          noActivationsYet: "Пока никто.",
+          closePanel: "Закрыть",
           detectFailed: "Не удалось определить сеть.",
           chooseNetworkForAddress: "Для этого адреса подходит несколько сетей. Выберите сеть вручную.",
           selectedNetworkMismatch: "Адрес не соответствует выбранной сети.",
@@ -409,6 +416,13 @@ function pageHtml(): string {
           walletDeleted: "Wallet deleted.",
           contactDeleted: "Contact deleted.",
           promoStateUpdated: "Promo state updated.",
+          promoUsedQuota: "Used",
+          remainingActivations: "Activations left",
+          copyPromoLink: "Copy invite link",
+          deeplinkNeedsUsername: "Set TELEGRAM_BOT_USERNAME on the worker for deeplinks.",
+          whoActivated: "Who redeemed",
+          noActivationsYet: "No activations yet.",
+          closePanel: "Close",
           detectFailed: "Could not detect network.",
           chooseNetworkForAddress: "This address matches multiple networks. Choose network manually.",
           selectedNetworkMismatch: "Address does not match selected network.",
@@ -421,6 +435,11 @@ function pageHtml(): string {
       }
       function msg(ru, en) {
         return state.lang === "en" ? en : ru;
+      }
+      function esc(s) {
+        var d = document.createElement("div");
+        d.textContent = s ?? "";
+        return d.innerHTML;
       }
       function applyLocaleStatic() {
         $("app-title").textContent = tr("appTitle");
@@ -764,6 +783,59 @@ function pageHtml(): string {
           $("pay-info").textContent = tr("noActiveInvoice");
         }
       }
+      async function loadPromoActivationList(promoId, codeLabel) {
+        var panel = $("admin-promo-detail");
+        if (!panel) return;
+        panel.classList.remove("hidden");
+        panel.innerHTML = "<div class='muted'>…</div>";
+        try {
+          var data = await api("/admin/promo-codes/" + encodeURIComponent(promoId) + "/activations");
+          var rows = data.items || [];
+          var head = "<div><b>" + esc(codeLabel) + "</b></div>";
+          if (!rows.length) {
+            panel.innerHTML =
+              head +
+              "<div class='muted' style='margin-top:8px'>" +
+              tr("noActivationsYet") +
+              "</div>" +
+              "<div class='btns' style='margin-top:10px'>" +
+              "<button type='button' class='btn ghost' data-promo-detail-close='1'>" +
+              tr("closePanel") +
+              "</button></div>";
+            return;
+          }
+          var sb = head + "<div style='margin-top:10px;max-height:min(50vh,380px);overflow:auto'>";
+          rows.forEach(function (r) {
+            var who =
+              r.displayName ||
+              (r.username ? "@" + r.username : "") ||
+              "(" + r.userId + ")";
+            sb +=
+              "<div style='padding:8px 0;border-top:1px solid var(--line)'>" +
+              "<div class='mono'>" +
+              esc(String(r.userId)) +
+              "</div>" +
+              "<div class='muted'>" +
+              esc(who) +
+              " · " +
+              fmtDate(r.activatedAt) +
+              "</div></div>";
+          });
+          sb +=
+            "</div><div class='btns' style='margin-top:10px'>" +
+            "<button type='button' class='btn ghost' data-promo-detail-close='1'>" +
+            tr("closePanel") +
+            "</button></div>";
+          panel.innerHTML = sb;
+        } catch (err) {
+          panel.innerHTML =
+            "<div class='muted'>" +
+            esc(err && err.message ? err.message : String(err)) +
+            "</div><div class='btns'><button type='button' class='btn ghost' data-promo-detail-close='1'>" +
+            tr("closePanel") +
+            "</button></div>";
+        }
+      }
       async function loadAdmin() {
         if (!state.me?.isAdmin) return;
         const [promo, stop, links, rep] = await Promise.all([
@@ -773,28 +845,64 @@ function pageHtml(): string {
           api("/admin/wallet-reputation")
         ]);
         clearNode("admin-promo-list");
-        (promo.items || []).forEach((p) => {
+        var detailEl = $("admin-promo-detail");
+        if (detailEl) {
+          detailEl.classList.add("hidden");
+          detailEl.innerHTML = "";
+        }
+        (promo.items || []).forEach(function (p) {
+          var maxTxt = p.maxActivations == null ? "∞" : String(p.maxActivations);
+          var remainingTxt =
+            p.remainingActivations === null || p.remainingActivations === undefined
+              ? "∞"
+              : String(p.remainingActivations);
+          var linkBlock = p.deepLink
+            ? "<div class='copy-block'><span class='mono'>" +
+              esc(p.deepLink) +
+              "</span><button type='button' class='btn ghost copy-btn' data-copy='" +
+              esc(p.deepLink) +
+              "'>" +
+              tr("copyPromoLink") +
+              "</button></div>"
+            : "<div class='muted'>" + tr("deeplinkNeedsUsername") + "</div>";
           append(
             "admin-promo-list",
-            "<div><b>" +
-              p.code +
+            "<div class='item'><div><b>" +
+              esc(String(p.code)) +
               "</b> · " +
               p.durationDays +
               "d · +" +
               p.bonusPercent +
               "% · " +
               (p.isActive ? tr("active") : tr("disabled")) +
-              "</div><div class='muted'>" + tr("uses") + ": " +
+              "</div><div class='muted'>" +
+              tr("promoUsedQuota") +
+              ": <b>" +
               p.activationsCount +
-              " / " +
-              (p.maxActivations ?? "∞") +
-              "</div><div class='btns'><button class='btn ghost' data-promo-toggle='" +
-              p.id +
+              "</b> / " +
+              maxTxt +
+              " · " +
+              tr("remainingActivations") +
+              ": <b>" +
+              remainingTxt +
+              "</b></div>" +
+              linkBlock +
+              "<div class='btns'>" +
+              "<button type='button' class='btn ghost' data-promo-toggle='" +
+              esc(p.id) +
               "' data-next-active='" +
               (p.isActive ? "0" : "1") +
               "'>" +
               (p.isActive ? tr("disable") : tr("enable")) +
-              "</button></div>"
+              "</button>" +
+              "<button type='button' class='btn ok' data-promo-who='" +
+              esc(p.id) +
+              "' data-promo-code-label='" +
+              encodeURIComponent(String(p.code)) +
+              "'>" +
+              tr("whoActivated") +
+              "</button>" +
+              "</div></div>"
           );
         });
         clearNode("admin-stop-list");
@@ -1034,6 +1142,23 @@ function pageHtml(): string {
             const source = data.balance?.source === "cache" ? " (cache)" : "";
             $("bal-" + walletId).innerHTML = lines + source;
           } catch (e) { toast(e.message || "Error", true); }
+          return;
+        }
+        const promoDetailClose = target.dataset.promoDetailClose;
+        if (promoDetailClose) {
+          const pe = $("admin-promo-detail");
+          if (pe) {
+            pe.classList.add("hidden");
+            pe.innerHTML = "";
+          }
+          return;
+        }
+        const promoWho = target.dataset.promoWho;
+        if (promoWho) {
+          const label = target.dataset.promoCodeLabel
+            ? decodeURIComponent(target.dataset.promoCodeLabel)
+            : "";
+          loadPromoActivationList(promoWho, label);
           return;
         }
         const promoId = target.dataset.promoToggle;

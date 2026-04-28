@@ -113,8 +113,18 @@ export type PromoCodeEntry = {
   bonusPercent: number;
   maxActivations: number | null;
   activationsCount: number;
+  /** null — без верхней границы */
+  remainingActivations: number | null;
   isActive: boolean;
   createdAt: string;
+};
+
+export type PromoActivationDetailRow = {
+  userId: string;
+  activatedAt: string;
+  code: string;
+  username: string | null;
+  displayName: string | null;
 };
 
 export type WalletReputationEntry = {
@@ -1577,13 +1587,31 @@ export async function createPromoCodeEntry(
   if (!row) {
     throw new Error("PROMO_CODE_CREATE_FAILED");
   }
+  return promoEntryFromRow(row);
+}
+
+function promoEntryFromRow(
+  row: {
+    id: string;
+    code: string;
+    duration_days: number;
+    bonus_percent: number;
+    max_activations: number | null;
+    activations_count: number;
+    is_active: number;
+    created_at: string;
+  }
+): PromoCodeEntry {
+  const max = row.max_activations;
+  const used = row.activations_count;
   return {
     id: row.id,
     code: row.code,
     durationDays: row.duration_days,
     bonusPercent: row.bonus_percent ?? 0,
-    maxActivations: row.max_activations,
-    activationsCount: row.activations_count,
+    maxActivations: max,
+    activationsCount: used,
+    remainingActivations: max !== null ? Math.max(0, max - used) : null,
     isActive: row.is_active === 1,
     createdAt: row.created_at
   };
@@ -1608,15 +1636,41 @@ export async function listPromoCodeEntries(env: Env, limit = 50): Promise<PromoC
       is_active: number;
       created_at: string;
     }>();
-  return result.results.map((row) => ({
-    id: row.id,
-    code: row.code,
-    durationDays: row.duration_days,
-    bonusPercent: row.bonus_percent ?? 0,
-    maxActivations: row.max_activations,
-    activationsCount: row.activations_count,
-    isActive: row.is_active === 1,
-    createdAt: row.created_at
+  return result.results.map((row) => promoEntryFromRow(row));
+}
+
+export async function listPromoActivationDetails(
+  env: Env,
+  promoId: string,
+  limit = 500
+): Promise<PromoActivationDetailRow[]> {
+  const safe = Math.max(1, Math.min(limit, 2000));
+  const rows = await env.DB.prepare(
+    `SELECT a.user_id AS user_id,
+            a.code AS code,
+            a.activated_at AS activated_at,
+            up.username AS username,
+            up.display_name AS display_name
+     FROM promo_code_activations a
+     LEFT JOIN user_profiles up ON up.user_id = a.user_id
+     WHERE a.promo_code_id = ?
+     ORDER BY a.activated_at DESC
+     LIMIT ?`
+  )
+    .bind(promoId, safe)
+    .all<{
+      user_id: string;
+      code: string;
+      activated_at: string;
+      username: string | null;
+      display_name: string | null;
+    }>();
+  return (rows.results ?? []).map((r) => ({
+    userId: r.user_id,
+    activatedAt: r.activated_at,
+    code: r.code,
+    username: r.username,
+    displayName: r.display_name
   }));
 }
 
@@ -1635,52 +1689,22 @@ export async function setPromoCodeActiveState(
   return result.meta.changes > 0;
 }
 
-export async function activatePromoCode(
+type PromoFetched = {
+  id: string;
+  code: string;
+  duration_days: number;
+  max_activations: number | null;
+  activations_count: number;
+  is_active: number;
+  bonus_percent: number;
+};
+
+async function finalizePromoSubscription(
   env: Env,
   userId: string,
-  rawCode: string
+  promo: PromoFetched,
+  ledgerCode: string
 ): Promise<SubscriptionInfo> {
-  await ensureSubscriptionRow(env, userId);
-  const code = normalizePromoCodeForLookup(rawCode);
-  if (!code) {
-    throw new Error("PROMO_CODE_EMPTY");
-  }
-  if (!isValidPromoCodeFormat(code)) {
-    throw new Error("PROMO_CODE_BAD_FORMAT");
-  }
-
-  const promo = await env.DB.prepare(
-    `SELECT id, duration_days, max_activations, activations_count, is_active, bonus_percent
-     FROM promo_codes
-     WHERE code = ?
-     LIMIT 1`
-  )
-    .bind(code)
-    .first<{
-      id: string;
-      duration_days: number;
-      max_activations: number | null;
-      activations_count: number;
-      is_active: number;
-      bonus_percent: number;
-    }>();
-
-  if (!promo || promo.is_active !== 1) {
-    throw new Error("PROMO_CODE_INVALID");
-  }
-  if (promo.max_activations !== null && promo.activations_count >= promo.max_activations) {
-    throw new Error("PROMO_CODE_EXHAUSTED");
-  }
-
-  const alreadyUsed = await env.DB.prepare(
-    "SELECT id FROM promo_code_activations WHERE promo_code_id = ? AND user_id = ? LIMIT 1"
-  )
-    .bind(promo.id, userId)
-    .first<{ id: string }>();
-  if (alreadyUsed?.id) {
-    throw new Error("PROMO_CODE_ALREADY_USED");
-  }
-
   const current = await getSubscriptionInfo(env, userId);
   const nowMs = Date.now();
   const currentExpiresMs = current.expiresAt ? Date.parse(current.expiresAt) : Number.NaN;
@@ -1713,7 +1737,7 @@ export async function activatePromoCode(
       activated_at
     ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   )
-    .bind(promo.id, userId, code, promo.duration_days, promo.bonus_percent ?? 0)
+    .bind(promo.id, userId, ledgerCode, promo.duration_days, promo.bonus_percent ?? 0)
     .run();
 
   await env.DB.prepare(
@@ -1723,6 +1747,75 @@ export async function activatePromoCode(
     .run();
 
   return getSubscriptionInfo(env, userId);
+}
+
+async function activatePromoIfEligible(
+  env: Env,
+  userId: string,
+  promo: PromoFetched | null,
+  ledgerCode: string
+): Promise<SubscriptionInfo> {
+  if (!promo || promo.is_active !== 1) {
+    throw new Error("PROMO_CODE_INVALID");
+  }
+  if (promo.max_activations !== null && promo.activations_count >= promo.max_activations) {
+    throw new Error("PROMO_CODE_EXHAUSTED");
+  }
+  const alreadyUsed = await env.DB.prepare(
+    "SELECT id FROM promo_code_activations WHERE promo_code_id = ? AND user_id = ? LIMIT 1"
+  )
+    .bind(promo.id, userId)
+    .first<{ id: string }>();
+  if (alreadyUsed?.id) {
+    throw new Error("PROMO_CODE_ALREADY_USED");
+  }
+  return finalizePromoSubscription(env, userId, promo, ledgerCode);
+}
+
+export async function activatePromoCode(
+  env: Env,
+  userId: string,
+  rawCode: string
+): Promise<SubscriptionInfo> {
+  await ensureSubscriptionRow(env, userId);
+  const code = normalizePromoCodeForLookup(rawCode);
+  if (!code) {
+    throw new Error("PROMO_CODE_EMPTY");
+  }
+  if (!isValidPromoCodeFormat(code)) {
+    throw new Error("PROMO_CODE_BAD_FORMAT");
+  }
+
+  const promo = await env.DB.prepare(
+    `SELECT id, code, duration_days, max_activations, activations_count, is_active, bonus_percent
+     FROM promo_codes
+     WHERE code = ?
+     LIMIT 1`
+  )
+    .bind(code)
+    .first<PromoFetched>();
+
+  return activatePromoIfEligible(env, userId, promo, code);
+}
+
+export async function activatePromoById(env: Env, userId: string, promoId: string): Promise<SubscriptionInfo> {
+  await ensureSubscriptionRow(env, userId);
+  const normalizedId = promoId.trim().toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(normalizedId)) {
+    throw new Error("PROMO_CODE_INVALID");
+  }
+
+  const promo = await env.DB.prepare(
+    `SELECT id, code, duration_days, max_activations, activations_count, is_active, bonus_percent
+     FROM promo_codes
+     WHERE id = ?
+     LIMIT 1`
+  )
+    .bind(normalizedId)
+    .first<PromoFetched>();
+
+  const ledgerCode = promo ? normalizePromoCodeForLookup(promo.code) : "";
+  return activatePromoIfEligible(env, userId, promo, ledgerCode);
 }
 
 export async function listWalletsForMonitoring(env: Env): Promise<MonitoredWallet[]> {

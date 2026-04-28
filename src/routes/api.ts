@@ -20,6 +20,7 @@ import {
   listContacts,
   listLinkAuditEntries,
   listPendingSubscriptionPayments,
+  listPromoActivationDetails,
   listPromoCodeEntries,
   listStoppedWallets,
   listTopWalletReputations,
@@ -349,6 +350,21 @@ api.get("/admin/promo-codes", async (c) => {
   try {
     requireAdmin(c.env, getUserId(c));
     const items = await listPromoCodeEntries(c.env, 200);
+    const botUsername = c.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "").trim();
+    const withLinks = items.map((p) => ({
+      ...p,
+      deepLink: botUsername ? `https://t.me/${botUsername}?start=p_${p.id}` : null
+    }));
+    return c.json({ items: withLinks });
+  } catch (error) {
+    return c.json({ error: mapApiError(error) }, 403);
+  }
+});
+
+api.get("/admin/promo-codes/:id/activations", async (c) => {
+  try {
+    requireAdmin(c.env, getUserId(c));
+    const items = await listPromoActivationDetails(c.env, c.req.param("id"), 500);
     return c.json({ items });
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 403);

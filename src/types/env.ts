@@ -1,6 +1,8 @@
 export type Env = {
   DB: D1Database;
   TELEGRAM_BOT_TOKEN: string;
+  /** Имя бота без @ (Vars/Secrets) — нужно для ссылки t.me вида ?start=p_UUID */
+  TELEGRAM_BOT_USERNAME?: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   ENCRYPTION_MASTER_KEY: string;
   ETHERSCAN_API_KEY?: string;

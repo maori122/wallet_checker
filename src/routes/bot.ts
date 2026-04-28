@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env } from "../types/env";
 import {
+  activatePromoById,
   activatePromoCode,
   addStoppedWallet,
   clearBotSession,
@@ -1594,6 +1595,41 @@ bot.post("/telegram", async (c) => {
 
   // Remove the user's tap/command from the chat so history stays a single bot "card" + keyboard.
   await deleteTelegramMessageWithRetry(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
+
+  const startPromoMatch = text?.match(/^\/start(?:@\S+)?\s+p_([a-f0-9]{32})\s*$/i);
+  if (startPromoMatch?.[1]) {
+    await clearBotSession(c.env, userId);
+    const promoId = startPromoMatch[1].toLowerCase();
+    try {
+      const subscription = await activatePromoById(c.env, userId, promoId);
+      const unlocked = isAdmin || hasActiveSubscription(subscription);
+      const summaryHtml = buildCabinetSummaryHtml(language, subscription);
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `✅ ${escapeHtml(t(language, "promoActivated"))}\n\n${summaryHtml}`,
+        mainKeyboard(language, isAdmin, unlocked),
+        "HTML"
+      );
+    } catch (error) {
+      const code = (error as Error).message;
+      const subscriptionAfter = await getSubscriptionInfo(c.env, userId);
+      const unlocked = isAdmin || hasActiveSubscription(subscriptionAfter);
+      const errorText =
+        code === "PROMO_CODE_ALREADY_USED"
+          ? t(language, "promoAlreadyUsed")
+          : code === "PROMO_CODE_EXHAUSTED"
+            ? t(language, "promoExhausted")
+            : t(language, "promoInvalid");
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        errorText,
+        mainKeyboard(language, isAdmin, unlocked)
+      );
+    }
+    return c.json({ ok: true });
+  }
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
