@@ -1489,6 +1489,15 @@ function telegramPromoStartUrl(env: Env, promoId: string): string | null {
   return `https://t.me/${u}?start=p_${promoId}`;
 }
 
+function buildPromoCreatedPostHtml(language: Language, env: Env, promoId: string): string {
+  const link = telegramPromoStartUrl(env, promoId);
+  const headline = `<b>${escapeHtml(t(language, "adminPromoCreated"))}</b>`;
+  if (link) {
+    return `${headline}\n\n🔗 <code>${escapeHtml(link)}</code>`;
+  }
+  return headline;
+}
+
 function buildAdminPromoListHtml(
   language: Language,
   env: Env,
@@ -1529,43 +1538,17 @@ function buildAdminPromoListHtml(
     );
     if (url) {
       chunks.push(`🔗 <code>${escapeHtml(url)}</code>`);
-    } else {
-      chunks.push(
-        language === "ru"
-          ? "🔗 <i>нет ссылки — задайте TELEGRAM_BOT_USERNAME в Cloudflare Workers (имя бота без @)</i>"
-          : "🔗 <i>no link — set TELEGRAM_BOT_USERNAME var (username without @)</i>"
-      );
     }
     chunks.push("");
   }
-
-  if (language === "ru") {
-    chunks.push(
-      "<b>Как сделать такую же ссылку самому</b>\n\n" +
-        "1️⃣ Откройте @BotFather → ваш бот — там видно <b>username</b> (как открыть бота: t.me/<b>этот_username</b>).\n\n" +
-        '2️⃣ Cloudflare Workers → ваш worker → <b>Settings → Variables</b> (или Vars): создайте <code>TELEGRAM_BOT_USERNAME</code>, значение = username <b>без</b> @ (то, что после t.me/ в ссылке на бота).\n\n' +
-        "3️⃣ Задеплойте заново → снова нажмите «Промокоды»: в каждой строке появится полная HTTPS-ссылка.\n\n" +
-        "4️⃣ Разошлите ссылку: человек попадает в бота → подписка по промокоду применится сама при старте."
-    );
-  } else {
-    chunks.push(
-      "<b>How to build the same link yourself</b>\n\n" +
-        "1️⃣ In @BotFather open your bot and copy its <b>username</b> (the part after <code>t.me/</code>).\n\n" +
-        "2️⃣ In Cloudflare → Worker → <b>Settings → Variables</b>, add <code>TELEGRAM_BOT_USERNAME</code> without <code>@</code>.\n\n" +
-        "3️⃣ Deploy again → tap «Promo codes» here: HTTPS links appear for each promo.\n\n" +
-        "4️⃣ Share the link: user opens Telegram and the promo activates on /start automatically."
-    );
-  }
-
-  chunks.push("", t(language, "adminPromoWhoHelp"));
 
   let html = chunks.join("\n");
   if (html.length > 4080) {
     html =
       html.slice(0, 4000) +
       (language === "ru"
-        ? "\n\n<i>…обрезано: слишком много промокодов. Пишите PROMOWHO по отдельным id или смотрите Mini App админку.</i>"
-        : "\n\n<i>…truncated — too many promos.</i>");
+        ? "\n\n<i>…список обрезан (слишком много промокодов).</i>"
+        : "\n\n<i>…truncated.</i>");
   }
   return html;
 }
@@ -2417,7 +2400,7 @@ bot.post("/telegram", async (c) => {
     }
 
     try {
-      await createPromoCodeEntry(c.env, {
+      const entry = await createPromoCodeEntry(c.env, {
         code,
         durationDays,
         maxActivations,
@@ -2425,7 +2408,13 @@ bot.post("/telegram", async (c) => {
         isActive: true
       });
       await setBotSession(c.env, userId, { flow: "section:admin" });
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminPromoCreated"), adminKeyboard(language));
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        buildPromoCreatedPostHtml(language, c.env, entry.id),
+        adminKeyboard(language),
+        "HTML"
+      );
     } catch {
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,

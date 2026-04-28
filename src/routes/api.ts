@@ -391,7 +391,12 @@ api.post("/admin/promo-codes", async (c) => {
       bonusPercent: body.bonusPercent ?? 0,
       isActive: body.isActive ?? true
     });
-    return c.json({ item }, 201);
+    const botUsername = c.env.TELEGRAM_BOT_USERNAME?.replace(/^@/, "").trim();
+    const deepLink =
+      botUsername?.length ?
+        `https://t.me/${botUsername}?start=p_${item.id}`
+      : null;
+    return c.json({ item: { ...item, deepLink } }, 201);
   } catch (error) {
     return c.json({ error: mapApiError(error) }, 400);
   }
