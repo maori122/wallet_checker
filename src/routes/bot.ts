@@ -161,8 +161,10 @@ const I18N = {
     paymentCheckPending: "Платеж пока не найден. Проверьте сумму/сеть и попробуйте еще раз через минуту.",
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
-    accessRequired: "Доступ к функциям бота открывается после оплаты подписки.",
-    accessRequiredHint: "Откройте личный кабинет и нажмите «💳 Оплатить подписку».",
+    accessRequiredHtml:
+      "<b>Все функции бота доступны только по подписке.</b>\n\n" +
+      "Оплата и активация промокода – в личном кабинете.\n\n" +
+      "Для оформления подписки перейдите в личный кабинет и нажмите <b>«💳 Оплатить подписку»</b>.",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -312,8 +314,10 @@ const I18N = {
     paymentCheckPending: "Payment not found yet. Verify amount/network and try again in a minute.",
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
-    accessRequired: "Bot features unlock after subscription payment.",
-    accessRequiredHint: "Open Account and tap \"💳 Pay subscription\".",
+    accessRequiredHtml:
+      "<b>All bot features are available only with a subscription.</b>\n\n" +
+      "Payment and promo code activation — in your account.\n\n" +
+      "To subscribe, open your account and tap <b>\"💳 Pay subscription\"</b>.",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
@@ -1486,8 +1490,9 @@ bot.post("/telegram", async (c) => {
       await sendTelegramMessage(
         token,
         chatId,
-        hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHint"),
-        mainKeyboard(language, isAdmin, hasBotAccess)
+        hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHtml"),
+        mainKeyboard(language, isAdmin, hasBotAccess),
+        hasBotAccess ? undefined : "HTML"
       );
       return c.json({ ok: true });
     }
@@ -1589,9 +1594,7 @@ bot.post("/telegram", async (c) => {
 
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
-    let welcomeText = hasBotAccess
-      ? t(language, "greet")
-      : `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`;
+    let welcomeText = hasBotAccess ? t(language, "greet") : t(language, "accessRequiredHtml");
     if (hasBotAccess) {
       const [walletsG, contactsG, summaryG] = await Promise.all([
         listWallets(c.env, userId),
@@ -1604,7 +1607,8 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       welcomeText,
-      mainKeyboard(language, isAdmin, hasBotAccess)
+      mainKeyboard(language, isAdmin, hasBotAccess),
+      hasBotAccess ? undefined : "HTML"
     );
     return c.json({ ok: true });
   }
@@ -1645,8 +1649,9 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHint"),
-      mainKeyboard(language, isAdmin, hasBotAccess)
+      hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHtml"),
+      mainKeyboard(language, isAdmin, hasBotAccess),
+      hasBotAccess ? undefined : "HTML"
     );
     return c.json({ ok: true });
   }
@@ -1683,8 +1688,9 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      `${t(language, "accessRequired")}\n\n${t(language, "accessRequiredHint")}`,
-      mainKeyboard(language, isAdmin, false)
+      t(language, "accessRequiredHtml"),
+      mainKeyboard(language, isAdmin, false),
+      "HTML"
     );
     return c.json({ ok: true });
   }
