@@ -163,8 +163,8 @@ const I18N = {
     paymentNetworkTrc20: "🔴 USDT TRC20",
     accessRequiredHtml:
       "<b>Все функции бота доступны только по подписке.</b>\n\n" +
-      "Оплата и активация промокода – в личном кабинете.\n\n" +
-      "Для оформления подписки перейдите в личный кабинет и нажмите <b>«💳 Оплатить подписку»</b>.",
+      "Для оформления подписки перейдите в личный кабинет и нажмите <b>«💳 Оплатить подписку»</b>.\n\n" +
+      "<b>Промокод</b> можно активировать в личном кабинете.",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -316,8 +316,8 @@ const I18N = {
     paymentNetworkTrc20: "🔴 USDT TRC20",
     accessRequiredHtml:
       "<b>All bot features are available only with a subscription.</b>\n\n" +
-      "Payment and promo code activation — in your account.\n\n" +
-      "To subscribe, open your account and tap <b>\"💳 Pay subscription\"</b>.",
+      "To subscribe, open your account and tap <b>\"💳 Pay subscription\"</b>.\n\n" +
+      "You can activate a <b>promo code</b> in your account.",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
