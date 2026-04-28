@@ -162,9 +162,9 @@ const I18N = {
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
     accessRequiredHtml:
-      "<b>Все функции бота доступны только по подписке.</b>\n\n" +
-      "Для оформления подписки перейдите в личный кабинет и нажмите <b>«💳 Оплатить подписку»</b>.\n\n" +
-      "<b>Промокод</b> можно активировать в личном кабинете.",
+      "<b>Все функции бота доступны только по подписке</b>\n\n" +
+      "Для оформления подписки перейдите в личный кабинет и нажмите <b>«💳 Оплатить подписку»</b>\n\n" +
+      "<b>Промокод</b> можно активировать в личном кабинете",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -315,9 +315,9 @@ const I18N = {
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
     accessRequiredHtml:
-      "<b>All bot features are available only with a subscription.</b>\n\n" +
-      "To subscribe, open your account and tap <b>\"💳 Pay subscription\"</b>.\n\n" +
-      "You can activate a <b>promo code</b> in your account.",
+      "<b>All bot features are available only with a subscription</b>\n\n" +
+      "To subscribe, open your account and tap <b>\"💳 Pay subscription\"</b>\n\n" +
+      "You can activate a <b>promo code</b> in your account",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
