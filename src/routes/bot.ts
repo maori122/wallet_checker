@@ -224,7 +224,7 @@ const I18N = {
     btnAdminCreatePromo: "🎟️ Создать промокод",
     btnActivatePromo: "🎟️ Активировать промокод",
     btnPaySubscription: "💳 Оплатить подписку",
-    btnPaySlotPack: "➕ +10 слотов ($10)",
+    btnPaySlotPack: "➕ +10 слотов",
     slotPackPaymentChooseNetwork: "Выберите сеть (10 USDT = +10 слотов для отслеживаемых кошельков).",
     slotPackInvoiceTitle: "Пакет: +10 слотов",
     adminSlotsHelp:
@@ -375,7 +375,7 @@ const I18N = {
     btnAdminCreatePromo: "🎟️ Create promo code",
     btnActivatePromo: "🎟️ Activate promo code",
     btnPaySubscription: "💳 Pay subscription",
-    btnPaySlotPack: "➕ +10 slots ($10)",
+    btnPaySlotPack: "➕ +10 slots",
     slotPackPaymentChooseNetwork: "Choose a network (10 USDT = +10 wallet slots).",
     slotPackInvoiceTitle: "Pack: +10 slots",
     adminSlotsHelp:
