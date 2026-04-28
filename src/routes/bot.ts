@@ -3178,6 +3178,19 @@ bot.post("/telegram", async (c) => {
       "HTML",
       promoDelInline
     );
+    // Reply and inline keyboards cannot be attached to the same sendMessage — follow up with
+    // admin reply keyboard without deleting or replacing the tracked list message above.
+    if (promoDelInline) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        "\u2060",
+        adminKeyboard(language),
+        undefined,
+        undefined,
+        { preserveExistingMessages: true, omitTrackedSurfaceUpdate: true }
+      );
+    }
     return c.json({ ok: true });
   }
 
