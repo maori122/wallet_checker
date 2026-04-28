@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import type { Env } from "../types/env";
 import {
+  type PromoActivationDetailRow,
   activatePromoById,
   activatePromoCode,
   addStoppedWallet,
+  listPromoActivationDetails,
+  listPromoCodeEntries,
   clearBotSession,
   createContact,
   createPromoCodeEntry,
@@ -188,6 +191,11 @@ const I18N = {
     adminLinksTitle: "Кто какие ссылки добавлял",
     adminPromoAsk:
       "Создать промокод — одна строка:\nCODE DAYS [MAX] [BONUS]\n\n• CODE — латиница или кириллица, без пробелов, напр. ЛЕТО2026\n• DAYS — дней подписки (база)\n• MAX — лимит вводов, можно пропустить\n• BONUS — по желанию: +% к дням. 30+20% = 36, не от суммы оплаты\n\nПримеры: ЛЕТО2026 30 | SPRING2026 30 100 | ВЕСНА2026 30 100 20",
+    adminPromoListTitle: "Промокоды",
+    adminPromoListEmpty: "Пока нет ни одного промокода. Сначала создайте кнопкой «Создать промокод».",
+    adminPromoWhoHelp:
+      "Чтобы узнать, кто уже активировал промокод, отправьте в чат: <code>PROMOWHO </code> + полный <b>🆔</b> нужной строки (32 символа, без пробелов в середине).",
+    adminPromoWhoEmpty: "По этому промокоду пока ни одной активации.",
     adminPromoCreated: "Промокод создан.",
     adminPromoInvalid:
       "Формат неверный.\nИспользуйте: CODE DAYS [MAX] [BONUS]\nПример: ЛЕТО2026 30 100 20",
@@ -223,6 +231,7 @@ const I18N = {
     btnAdminStopWallets: "⛔ Стоп-кошельки",
     btnAdminLinks: "🔎 Логи ссылок",
     btnAdminCreatePromo: "🎟️ Создать промокод",
+    btnAdminPromoList: "🎟️ Промокоды",
     btnActivatePromo: "🎟️ Активировать промокод",
     btnPaySubscription: "💳 Оплатить подписку",
     btnPaySlotPack: "➕ +10 слотов",
@@ -341,6 +350,11 @@ const I18N = {
     adminLinksTitle: "Who added which links",
     adminPromoAsk:
       "Create a promo in one line:\nCODE DAYS [MAX] [BONUS]\n\n• CODE — e.g. SPRING2026\n• DAYS — subscription days (base)\n• MAX — redemption cap, optional\n• BONUS — optional: +% to days. 30+20% = 36, not payment-related\n\nExamples: SPRING2026 30 | SPRING2026 30 100 | SPRING2026 30 100 20",
+    adminPromoListTitle: "Promo codes",
+    adminPromoListEmpty: "No promo codes yet. Create one first with «Create promo code».",
+    adminPromoWhoHelp:
+      "Who redeemed already: send <code>PROMOWHO </code> plus the full <b>🆔</b> line (32 hex chars) from the list above.",
+    adminPromoWhoEmpty: "No activations for this promo yet.",
     adminPromoCreated: "Promo code created.",
     adminPromoInvalid:
       "Invalid format.\nUse: CODE DAYS [MAX] [BONUS]\nExample: SPRING2026 30 100 20",
@@ -374,6 +388,7 @@ const I18N = {
     btnAdminStopWallets: "⛔ Stop wallets",
     btnAdminLinks: "🔎 Links log",
     btnAdminCreatePromo: "🎟️ Create promo code",
+    btnAdminPromoList: "🎟️ Promo codes",
     btnActivatePromo: "🎟️ Activate promo code",
     btnPaySubscription: "💳 Pay subscription",
     btnPaySlotPack: "➕ +10 slots",
@@ -414,7 +429,8 @@ function isAdminActionButton(input: string): boolean {
     isBtn(input, "btnAdminResetReputation") ||
     isBtn(input, "btnAdminStopWallets") ||
     isBtn(input, "btnAdminLinks") ||
-    isBtn(input, "btnAdminCreatePromo")
+    isBtn(input, "btnAdminCreatePromo") ||
+    isBtn(input, "btnAdminPromoList")
   );
 }
 
@@ -624,6 +640,7 @@ function pagedListReplyKeyboard(language: Language, kind: PagedListKind, totalPa
       keyboard: [
         [t(language, "btnAdminStats")],
         [t(language, "btnAdminCreatePromo")],
+        [t(language, "btnAdminPromoList")],
         [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
         navRow
       ],
@@ -1240,6 +1257,7 @@ function adminKeyboard(language: Language): ReplyMarkup {
     keyboard: [
       [t(language, "btnAdminStats")],
       [t(language, "btnAdminCreatePromo")],
+      [t(language, "btnAdminPromoList")],
       [t(language, "btnAdminStopWallets"), t(language, "btnAdminLinks")],
       [t(language, "btnMainMenu")]
     ],
@@ -1457,6 +1475,111 @@ function buildAdminPromoGuideHtml(language: Language): string {
     "<code>SPRING2026 30 100</code>\n" +
     "<code>SPRING2026 30 100 20</code>"
   );
+}
+
+function telegramPromoStartUrl(env: Env, promoId: string): string | null {
+  const trimmed = env.TELEGRAM_BOT_USERNAME?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const u = trimmed.replace(/^@/, "");
+  if (!u) {
+    return null;
+  }
+  return `https://t.me/${u}?start=p_${promoId}`;
+}
+
+function buildAdminPromoListHtml(
+  language: Language,
+  env: Env,
+  items: Array<{
+    code: string;
+    id: string;
+    durationDays: number;
+    bonusPercent: number;
+    activationsCount: number;
+    maxActivations: number | null;
+    remainingActivations: number | null;
+    isActive: boolean;
+  }>
+): string {
+  const titleEscaped = escapeHtml(t(language, "adminPromoListTitle"));
+  if (!items.length) {
+    return `<b>🎟️ ${titleEscaped}</b>\n\n${escapeHtml(t(language, "adminPromoListEmpty"))}`;
+  }
+  const chunks: string[] = [];
+  chunks.push(`<b>🎟️ ${titleEscaped}</b>\n`);
+
+  const maxLbl = language === "ru" ? "лимит" : "limit";
+  const leftLbl = language === "ru" ? "осталось" : "left";
+  const usedLbl = language === "ru" ? "использовано" : "used";
+
+  for (const p of items) {
+    const max = p.maxActivations === null ? "∞" : String(p.maxActivations);
+    const rem =
+      p.remainingActivations === null || p.remainingActivations === undefined ? "∞" : String(p.remainingActivations);
+    const active = p.isActive ? "✅" : "⛔";
+    const url = telegramPromoStartUrl(env, p.id);
+    chunks.push(
+      `<b>${escapeHtml(p.code)}</b> ${active} · ${p.durationDays}d · +${p.bonusPercent}%`,
+      language === "ru"
+        ? `📊 ${usedLbl}: <b>${p.activationsCount}</b> / ${escapeHtml(max)} (${maxLbl}) · ${leftLbl}: <b>${escapeHtml(rem)}</b>`
+        : `📊 ${usedLbl}: <b>${p.activationsCount}</b> / ${escapeHtml(max)} · ${leftLbl}: <b>${escapeHtml(rem)}</b>`,
+      `🆔 <code>${escapeHtml(p.id)}</code>`
+    );
+    if (url) {
+      chunks.push(`🔗 <code>${escapeHtml(url)}</code>`);
+    } else {
+      chunks.push(
+        language === "ru"
+          ? "🔗 <i>нет ссылки — задайте TELEGRAM_BOT_USERNAME в Cloudflare Workers (имя бота без @)</i>"
+          : "🔗 <i>no link — set TELEGRAM_BOT_USERNAME var (username without @)</i>"
+      );
+    }
+    chunks.push("");
+  }
+
+  if (language === "ru") {
+    chunks.push(
+      "<b>Как сделать такую же ссылку самому</b>\n\n" +
+        "1️⃣ Откройте @BotFather → ваш бот — там видно <b>username</b> (как открыть бота: t.me/<b>этот_username</b>).\n\n" +
+        '2️⃣ Cloudflare Workers → ваш worker → <b>Settings → Variables</b> (или Vars): создайте <code>TELEGRAM_BOT_USERNAME</code>, значение = username <b>без</b> @ (то, что после t.me/ в ссылке на бота).\n\n' +
+        "3️⃣ Задеплойте заново → снова нажмите «Промокоды»: в каждой строке появится полная HTTPS-ссылка.\n\n" +
+        "4️⃣ Разошлите ссылку: человек попадает в бота → подписка по промокоду применится сама при старте."
+    );
+  } else {
+    chunks.push(
+      "<b>How to build the same link yourself</b>\n\n" +
+        "1️⃣ In @BotFather open your bot and copy its <b>username</b> (the part after <code>t.me/</code>).\n\n" +
+        "2️⃣ In Cloudflare → Worker → <b>Settings → Variables</b>, add <code>TELEGRAM_BOT_USERNAME</code> without <code>@</code>.\n\n" +
+        "3️⃣ Deploy again → tap «Promo codes» here: HTTPS links appear for each promo.\n\n" +
+        "4️⃣ Share the link: user opens Telegram and the promo activates on /start automatically."
+    );
+  }
+
+  chunks.push("", t(language, "adminPromoWhoHelp"));
+
+  let html = chunks.join("\n");
+  if (html.length > 4080) {
+    html =
+      html.slice(0, 4000) +
+      (language === "ru"
+        ? "\n\n<i>…обрезано: слишком много промокодов. Пишите PROMOWHO по отдельным id или смотрите Mini App админку.</i>"
+        : "\n\n<i>…truncated — too many promos.</i>");
+  }
+  return html;
+}
+
+function buildPromoWhoActivationsHtml(language: Language, rows: PromoActivationDetailRow[]): string {
+  if (!rows.length) {
+    return escapeHtml(t(language, "adminPromoWhoEmpty"));
+  }
+  const header = language === "ru" ? "<b>Список активаций:</b>\n\n" : "<b>Redemptions:</b>\n\n";
+  const lines = rows.map((r) => {
+    const nick = [r.displayName?.trim(), r.username ? `@${r.username}` : ""].filter(Boolean).join(" ") || "—";
+    return `${escapeHtml(nick)}\n<code>${escapeHtml(r.userId)}</code> · ${escapeHtml(formatDateForLanguage(r.activatedAt, language))}`;
+  });
+  return header + lines.join("\n\n");
 }
 
 bot.post("/telegram", async (c) => {
@@ -1677,6 +1800,29 @@ bot.post("/telegram", async (c) => {
           ? `Слоты обновлены (user <code>${escapeHtml(targetUserId)}</code>).\nКошельки: +${wAdd} → всего доп.: ${totalExtraW}\nКонтакты: +${cAdd} → всего доп.: ${totalExtraC}`
           : `Slots updated (user <code>${escapeHtml(targetUserId)}</code>).\nWallets: +${wAdd} → total extra: ${totalExtraW}\nContacts: +${cAdd} → total extra: ${totalExtraC}`;
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, msg, adminKeyboard(language), "HTML");
+      return c.json({ ok: true });
+    }
+    const promoWhoMatch = text.match(/^\s*PROMOWHO\s+([a-f0-9]{32})\s*$/i);
+    if (promoWhoMatch?.[1]) {
+      const pid = promoWhoMatch[1].toLowerCase();
+      const rows = await listPromoActivationDetails(c.env, pid, 50);
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        buildPromoWhoActivationsHtml(language, rows),
+        adminKeyboard(language),
+        "HTML"
+      );
+      return c.json({ ok: true });
+    }
+    if (/^\s*PROMOWHO\b/i.test(text.trim())) {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        t(language, "adminPromoWhoHelp"),
+        adminKeyboard(language),
+        "HTML"
+      );
       return c.json({ ok: true });
     }
   }
@@ -2954,6 +3100,18 @@ bot.post("/telegram", async (c) => {
       adminKeyboard(language),
       "HTML"
     );
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnAdminPromoList")) {
+    if (!isAdmin) {
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      return c.json({ ok: true });
+    }
+    await setBotSession(c.env, userId, { flow: "section:admin" });
+    const items = await listPromoCodeEntries(c.env, 40);
+    const html = buildAdminPromoListHtml(language, c.env, items);
+    await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, html, adminKeyboard(language), "HTML");
     return c.json({ ok: true });
   }
 
