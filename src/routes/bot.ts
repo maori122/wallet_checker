@@ -1253,7 +1253,7 @@ async function sendTelegramMessage(
   replyMarkup?: ReplyMarkup,
   parseMode?: "HTML" | "MarkdownV2",
   inlineKeyboard?: InlineReplyMarkup,
-  options?: { preserveExistingMessages?: boolean }
+  options?: { preserveExistingMessages?: boolean; omitTrackedSurfaceUpdate?: boolean }
 ): Promise<Response> {
   if ((replyMarkup || inlineKeyboard) && !options?.preserveExistingMessages) {
     const previousIds = lastUiMessageIdsByChat.get(chatId);
@@ -1288,10 +1288,12 @@ async function sendTelegramMessage(
 
   if ((replyMarkup || inlineKeyboard) && response.ok) {
     try {
-      const data = (await response.clone().json()) as { result?: { message_id?: number } };
-      const sentMessageId = data.result?.message_id;
-      if (typeof sentMessageId === "number") {
-        lastUiMessageIdsByChat.set(chatId, [sentMessageId]);
+      if (!options?.omitTrackedSurfaceUpdate) {
+        const data = (await response.clone().json()) as { result?: { message_id?: number } };
+        const sentMessageId = data.result?.message_id;
+        if (typeof sentMessageId === "number") {
+          lastUiMessageIdsByChat.set(chatId, [sentMessageId]);
+        }
       }
     } catch {
       // Ignore tracking parse errors; message still sent.
@@ -2126,7 +2128,9 @@ bot.post("/telegram", async (c) => {
       message.chat.id,
       htmlText,
       cabinetKeyboard(language),
-      "HTML"
+      "HTML",
+      undefined,
+      { preserveExistingMessages: true, omitTrackedSurfaceUpdate: true }
     );
     return c.json({ ok: true });
   }
@@ -2161,7 +2165,9 @@ bot.post("/telegram", async (c) => {
       message.chat.id,
       htmlText,
       cabinetKeyboard(language),
-      "HTML"
+      "HTML",
+      undefined,
+      { preserveExistingMessages: true, omitTrackedSurfaceUpdate: true }
     );
     return c.json({ ok: true });
   }
