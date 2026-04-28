@@ -271,6 +271,36 @@ export async function addExtraContactSlots(env: Env, userId: string, delta: numb
   return (await getUserSlotBonuses(env, userId)).extraContact;
 }
 
+export type AdminDashboardStats = {
+  totalUsers: number;
+  usersWithTrackedWallets: number;
+  activeSubscriptions: number;
+  promoActivationsEver: number;
+};
+
+/** Aggregate counts for admin dashboard (lightweight reads). */
+export async function getAdminDashboardStats(env: Env): Promise<AdminDashboardStats> {
+  const nowIso = new Date().toISOString();
+  const [totalRow, walletUsersRow, subRow, promoRow] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(1) AS n FROM users").first<{ n: number }>(),
+    env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM wallets").first<{ n: number }>(),
+    env.DB
+      .prepare(
+        `SELECT COUNT(1) AS n FROM user_subscriptions
+         WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at > ?`
+      )
+      .bind(nowIso)
+      .first<{ n: number }>(),
+    env.DB.prepare("SELECT COUNT(1) AS n FROM promo_code_activations").first<{ n: number }>()
+  ]);
+  return {
+    totalUsers: totalRow?.n ?? 0,
+    usersWithTrackedWallets: walletUsersRow?.n ?? 0,
+    activeSubscriptions: subRow?.n ?? 0,
+    promoActivationsEver: promoRow?.n ?? 0
+  };
+}
+
 async function ensureSettingsRow(env: Env, userId: string): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO user_settings (
