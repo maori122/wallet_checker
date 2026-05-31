@@ -174,7 +174,7 @@ const I18N = {
     paymentNetworkTrc20: "🔴 USDT TRC20",
     channelRequiredHtml:
       "<b>Трекер бесплатный</b> — нужна подписка на канал.\n\n" +
-      "👉 <a href=\"{url}\">Перейти в канал</a>\n\n" +
+      "{url}\n\n" +
       "После подписки нажмите <b>«✅ Проверить подписку»</b>.",
     channelCheckAlert: "Подпишитесь на канал, затем нажмите «Проверить подписку».",
     channelCheckOk: "✅ Подписка на канал подтверждена. Добро пожаловать!",
@@ -360,7 +360,7 @@ const I18N = {
     paymentNetworkTrc20: "🔴 USDT TRC20",
     channelRequiredHtml:
       "<b>The tracker is free</b> — subscribe to our channel first.\n\n" +
-      "👉 <a href=\"{url}\">Open channel</a>\n\n" +
+      "{url}\n\n" +
       "After subscribing, tap <b>\"✅ Check subscription\"</b>.",
     channelCheckAlert: "Subscribe to the channel, then tap \"Check subscription\".",
     channelCheckOk: "✅ Channel subscription confirmed. Welcome!",
@@ -1208,8 +1208,47 @@ function hasActiveSubscription(subscription: { status: "inactive" | "active"; ex
 }
 
 function buildChannelRequiredHtml(language: Language, env: Env): string {
-  const url = escapeHtml(getRequiredChannelUrl(env));
-  return t(language, "channelRequiredHtml").replace("{url}", url);
+  const url = getRequiredChannelUrl(env);
+  return t(language, "channelRequiredHtml").replace("{url}", escapeHtml(url));
+}
+
+function serializeReplyMarkup(markup: ReplyMarkup): {
+  keyboard: ReplyKeyboardButton[][];
+  resize_keyboard: boolean;
+} {
+  return {
+    keyboard: markup.keyboard.map((row) =>
+      row.map((cell) => (typeof cell === "string" ? { text: cell } : cell))
+    ),
+    resize_keyboard: markup.resize_keyboard
+  };
+}
+
+function channelGateInlineMarkup(language: Language, channelUrl: string): InlineReplyMarkup {
+  return {
+    inline_keyboard: [[{ text: t(language, "btnOpenChannel"), url: channelUrl }]]
+  };
+}
+
+async function editMessageInlineMarkup(
+  token: string,
+  chatId: number,
+  messageId: number,
+  inlineKeyboard: InlineReplyMarkup
+): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: inlineKeyboard
+      })
+    });
+  } catch {
+    // ignore
+  }
 }
 
 function channelGateKeyboard(language: Language, channelUrl: string): ReplyMarkup {
@@ -1229,15 +1268,25 @@ async function sendChannelGateMessage(
   env: Env,
   noticeHtml?: string
 ): Promise<void> {
+  const channelUrl = getRequiredChannelUrl(env);
   const summary = buildChannelRequiredHtml(language, env);
   const body = noticeHtml ? `${noticeHtml}\n\n${summary}` : summary;
-  await sendTelegramMessage(
+  const response = await sendTelegramMessage(
     token,
     chatId,
     body,
-    channelGateKeyboard(language, getRequiredChannelUrl(env)),
+    channelGateKeyboard(language, channelUrl),
     "HTML"
   );
+  try {
+    const data = (await response.clone().json()) as { result?: { message_id?: number } };
+    const messageId = data.result?.message_id;
+    if (typeof messageId === "number") {
+      await editMessageInlineMarkup(token, chatId, messageId, channelGateInlineMarkup(language, channelUrl));
+    }
+  } catch {
+    // Reply keyboard still works if inline edit fails.
+  }
 }
 
 async function deliverChannelCheckResult(
@@ -1456,7 +1505,7 @@ async function sendTelegramMessage(
   if (inlineKeyboard) {
     payload.reply_markup = inlineKeyboard;
   } else if (replyMarkup) {
-    payload.reply_markup = replyMarkup;
+    payload.reply_markup = serializeReplyMarkup(replyMarkup);
   }
   if (parseMode) {
     payload.parse_mode = parseMode;
@@ -2508,6 +2557,10 @@ bot.post("/telegram", async (c) => {
       isAdmin,
       hasTrackerAccess
     );
+    return c.json({ ok: true });
+  }
+
+  if (!hasTrackerAccess && isBtn(text, "btnOpenChannel")) {
     return c.json({ ok: true });
   }
 
