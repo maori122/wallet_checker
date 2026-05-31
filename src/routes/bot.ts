@@ -58,7 +58,7 @@ type Variables = {
 type Language = "ru" | "en";
 
 type InlineReplyMarkup = {
-  inline_keyboard: { text: string; callback_data: string }[][];
+  inline_keyboard: { text: string; callback_data?: string; url?: string }[][];
 };
 
 type TelegramUpdate = {
@@ -1211,13 +1211,105 @@ function buildChannelRequiredHtml(language: Language, env: Env): string {
 
 function channelGateKeyboard(language: Language): ReplyMarkup {
   return {
-    keyboard: [[t(language, "btnOpenChannel")], [t(language, "btnCheckChannel")]],
+    keyboard: [[t(language, "btnCheckChannel")]],
     resize_keyboard: true
   };
 }
 
+/** Inline URL opens the channel (reply buttons cannot open links). */
+function channelGateInlineMarkup(language: Language, env: Env): InlineReplyMarkup {
+  return {
+    inline_keyboard: [
+      [{ text: t(language, "btnOpenChannel"), url: getRequiredChannelUrl(env) }],
+      [{ text: t(language, "btnCheckChannel"), callback_data: "channel:check" }]
+    ]
+  };
+}
+
+async function editMessageInlineMarkup(
+  token: string,
+  chatId: number,
+  messageId: number,
+  inlineKeyboard: InlineReplyMarkup
+): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: inlineKeyboard
+      })
+    });
+  } catch {
+    // ignore
+  }
+}
+
+async function sendChannelGateMessage(
+  token: string,
+  chatId: number,
+  language: Language,
+  env: Env,
+  noticeHtml?: string
+): Promise<void> {
+  const summary = buildChannelRequiredHtml(language, env);
+  const body = noticeHtml ? `${noticeHtml}\n\n${summary}` : summary;
+  const response = await sendTelegramMessage(
+    token,
+    chatId,
+    body,
+    channelGateKeyboard(language),
+    "HTML"
+  );
+  try {
+    const data = (await response.clone().json()) as { result?: { message_id?: number } };
+    const messageId = data.result?.message_id;
+    if (typeof messageId === "number") {
+      await editMessageInlineMarkup(token, chatId, messageId, channelGateInlineMarkup(language, env));
+    }
+  } catch {
+    // Gate text still visible without inline buttons.
+  }
+}
+
+async function deliverChannelCheckResult(
+  env: Env,
+  token: string,
+  chatId: number,
+  userId: string,
+  language: Language,
+  isAdmin: boolean,
+  hasTrackerAccess: boolean
+): Promise<void> {
+  if (hasTrackerAccess) {
+    const [walletsG, contactsG, summaryG] = await Promise.all([
+      listWallets(env, userId),
+      listContacts(env, userId),
+      getUsageSummary(env, userId)
+    ]);
+    const welcomeText = buildWelcomeScreenHtml(
+      language,
+      walletsG.length,
+      contactsG.length,
+      summaryG.walletLimit,
+      summaryG.contactLimit
+    );
+    await sendTelegramMessage(
+      token,
+      chatId,
+      `${t(language, "channelCheckOk")}\n\n${welcomeText}`,
+      mainKeyboard(language, isAdmin, true),
+      "HTML"
+    );
+    return;
+  }
+  await sendChannelGateMessage(token, chatId, language, env, t(language, "channelCheckFail"));
+}
+
 function isChannelGateButton(text: string): boolean {
-  return isBtn(text, "btnCheckChannel") || isBtn(text, "btnOpenChannel");
+  return isBtn(text, "btnCheckChannel");
 }
 
 function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true): ReplyMarkup {
@@ -2042,6 +2134,15 @@ bot.post("/telegram", async (c) => {
       await answerCallbackQuery(token, cq.id);
       return c.json({ ok: true });
     }
+    if (data === "channel:check") {
+      const settings = await getSettings(c.env, userId);
+      const language = settings.language;
+      const isAdmin = isAdminUser(c.env, userId);
+      const hasTrackerAccess = isAdmin || (await isChannelMember(c.env, userId));
+      await answerCallbackQuery(token, cq.id);
+      await deliverChannelCheckResult(c.env, token, chatId, userId, language, isAdmin, hasTrackerAccess);
+      return c.json({ ok: true });
+    }
     if (data === "m:main") {
       await clearBotSession(c.env, userId);
       const settings = await getSettings(c.env, userId);
@@ -2049,13 +2150,17 @@ bot.post("/telegram", async (c) => {
       const isAdmin = isAdminUser(c.env, userId);
       const hasTrackerAccess = isAdmin || (await isChannelMember(c.env, userId));
       await answerCallbackQuery(token, cq.id);
-      await sendTelegramMessage(
-        token,
-        chatId,
-        hasTrackerAccess ? `🏠 ${t(language, "mainMenu")}` : buildChannelRequiredHtml(language, c.env),
-        mainKeyboard(language, isAdmin, hasTrackerAccess),
-        "HTML"
-      );
+      if (hasTrackerAccess) {
+        await sendTelegramMessage(
+          token,
+          chatId,
+          `🏠 ${t(language, "mainMenu")}`,
+          mainKeyboard(language, isAdmin, true),
+          "HTML"
+        );
+      } else {
+        await sendChannelGateMessage(token, chatId, language, c.env);
+      }
       return c.json({ ok: true });
     }
     const pageMatch = data.match(/^p:([^:]+):(\d+)$/);
@@ -2213,7 +2318,8 @@ bot.post("/telegram", async (c) => {
         summaryG.contactLimit
       );
     } else {
-      welcomeText = buildChannelRequiredHtml(language, c.env);
+      await sendChannelGateMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, language, c.env);
+      return c.json({ ok: true });
     }
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
@@ -2392,13 +2498,15 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnMainMenu") || isBtn(text, "btnBack")) {
     await clearBotSession(c.env, userId);
-    // Explicitly resend the main keyboard so user can always exit nested flows,
-    // including admin panel, in one tap.
+    if (!hasTrackerAccess) {
+      await sendChannelGateMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, language, c.env);
+      return c.json({ ok: true });
+    }
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      hasTrackerAccess ? `🏠 ${t(language, "mainMenu")}` : buildChannelRequiredHtml(language, c.env),
-      mainKeyboard(language, isAdmin, hasTrackerAccess),
+      `🏠 ${t(language, "mainMenu")}`,
+      mainKeyboard(language, isAdmin, true),
       "HTML"
     );
     return c.json({ ok: true });
@@ -2420,57 +2528,25 @@ bot.post("/telegram", async (c) => {
   }
 
   if (isBtn(text, "btnOpenChannel")) {
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      buildChannelRequiredHtml(language, c.env),
-      channelGateKeyboard(language),
-      "HTML"
-    );
+    await sendChannelGateMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, language, c.env);
     return c.json({ ok: true });
   }
 
   if (isBtn(text, "btnCheckChannel")) {
-    if (hasTrackerAccess) {
-      const [walletsG, contactsG, summaryG] = await Promise.all([
-        listWallets(c.env, userId),
-        listContacts(c.env, userId),
-        getUsageSummary(c.env, userId)
-      ]);
-      const welcomeText = buildWelcomeScreenHtml(
-        language,
-        walletsG.length,
-        contactsG.length,
-        summaryG.walletLimit,
-        summaryG.contactLimit
-      );
-      await sendTelegramMessage(
-        c.env.TELEGRAM_BOT_TOKEN,
-        message.chat.id,
-        `${t(language, "channelCheckOk")}\n\n${welcomeText}`,
-        mainKeyboard(language, isAdmin, true),
-        "HTML"
-      );
-    } else {
-      await sendTelegramMessage(
-        c.env.TELEGRAM_BOT_TOKEN,
-        message.chat.id,
-        `${t(language, "channelCheckFail")}\n\n${buildChannelRequiredHtml(language, c.env)}`,
-        channelGateKeyboard(language),
-        "HTML"
-      );
-    }
+    await deliverChannelCheckResult(
+      c.env,
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      userId,
+      language,
+      isAdmin,
+      hasTrackerAccess
+    );
     return c.json({ ok: true });
   }
 
   if (!hasTrackerAccess && !isChannelGateButton(text)) {
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      buildChannelRequiredHtml(language, c.env),
-      channelGateKeyboard(language),
-      "HTML"
-    );
+    await sendChannelGateMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, language, c.env);
     return c.json({ ok: true });
   }
 
