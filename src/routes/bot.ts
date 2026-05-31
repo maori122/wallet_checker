@@ -170,8 +170,7 @@ const I18N = {
     channelRequiredHtml:
       "<b>Трекер бесплатный</b> — нужна подписка на канал.\n\n" +
       "👉 <a href=\"{url}\">Перейти в канал</a>\n\n" +
-      "После подписки нажмите <b>«✅ Проверить подписку»</b>.\n\n" +
-      "Пакет <b>+10 слотов</b> — в личном кабинете (USDT).",
+      "После подписки нажмите <b>«✅ Проверить подписку»</b>.",
     channelCheckAlert: "Подпишитесь на канал, затем нажмите «Проверить подписку».",
     channelCheckOk: "✅ Подписка на канал подтверждена. Добро пожаловать!",
     channelCheckFail: "Подписка на канал не найдена. Перейдите по ссылке выше и попробуйте снова.",
@@ -357,8 +356,7 @@ const I18N = {
     channelRequiredHtml:
       "<b>The tracker is free</b> — subscribe to our channel first.\n\n" +
       "👉 <a href=\"{url}\">Open channel</a>\n\n" +
-      "After subscribing, tap <b>\"✅ Check subscription\"</b>.\n\n" +
-      "<b>+10 slots</b> pack is paid in Account (USDT).",
+      "After subscribing, tap <b>\"✅ Check subscription\"</b>.",
     channelCheckAlert: "Subscribe to the channel, then tap \"Check subscription\".",
     channelCheckOk: "✅ Channel subscription confirmed. Welcome!",
     channelCheckFail: "Channel subscription not found. Open the link above and try again.",
