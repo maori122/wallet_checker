@@ -90,8 +90,9 @@ type ReplyKeyboardButton = {
 };
 
 type ReplyMarkup = {
-  keyboard: (string | ReplyKeyboardButton)[][];
-  resize_keyboard: boolean;
+  keyboard?: (string | ReplyKeyboardButton)[][];
+  resize_keyboard?: boolean;
+  remove_keyboard?: boolean;
 };
 
 type BotSession = {
@@ -173,7 +174,7 @@ const I18N = {
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
     channelRequiredHtml:
-      "<b>Трекер бесплатный.</b> Чтобы всё заработало, подпишитесь на наш канал — кнопки ниже.",
+      "<b>Трекер бесплатный.</b> Чтобы всё заработало, подпишитесь на наш канал — кнопки под сообщением.",
     channelCheckAlert: "Сначала «Подписаться», затем «Проверить подписку».",
     channelCheckOk: "✅ Подписка на канал подтверждена. Добро пожаловать!",
     channelCheckFail: "Подписка не найдена. Нажмите «Подписаться», вступите в канал и проверьте снова.",
@@ -358,7 +359,7 @@ const I18N = {
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
     channelRequiredHtml:
-      "<b>The tracker is free.</b> Subscribe to our channel to unlock it — use the buttons below.",
+      "<b>The tracker is free.</b> Subscribe to our channel to unlock it — use the buttons under this message.",
     channelCheckAlert: "Tap Subscribe first, then Check subscription.",
     channelCheckOk: "✅ Channel subscription confirmed. Welcome!",
     channelCheckFail: "Not subscribed yet. Tap Subscribe, join the channel, then check again.",
@@ -1209,26 +1210,42 @@ function buildChannelRequiredHtml(language: Language, _env: Env): string {
   return t(language, "channelRequiredHtml");
 }
 
-function serializeReplyMarkup(markup: ReplyMarkup): {
-  keyboard: ReplyKeyboardButton[][];
-  resize_keyboard: boolean;
-} {
+function serializeReplyMarkup(markup: ReplyMarkup): Record<string, unknown> {
+  if (markup.remove_keyboard) {
+    return { remove_keyboard: true };
+  }
   return {
-    keyboard: markup.keyboard.map((row) =>
+    keyboard: (markup.keyboard ?? []).map((row) =>
       row.map((cell) => (typeof cell === "string" ? { text: cell } : cell))
     ),
-    resize_keyboard: markup.resize_keyboard
+    resize_keyboard: markup.resize_keyboard ?? true
   };
 }
 
-function channelGateReplyKeyboard(language: Language, channelUrl: string): ReplyMarkup {
+function channelGateInlineMarkup(language: Language, channelUrl: string): InlineReplyMarkup {
   return {
-    keyboard: [
+    inline_keyboard: [
       [{ text: t(language, "btnSubscribeChannel"), url: channelUrl }],
-      [{ text: t(language, "btnCheckChannel") }]
-    ],
-    resize_keyboard: true
+      [{ text: t(language, "btnCheckChannel"), callback_data: "channel:check" }]
+    ]
   };
+}
+
+async function clearReplyKeyboard(token: string, chatId: number): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: "\u200b",
+        reply_markup: { remove_keyboard: true },
+        disable_notification: true
+      })
+    });
+  } catch {
+    // ignore
+  }
 }
 
 async function sendChannelGateMessage(
@@ -1241,13 +1258,14 @@ async function sendChannelGateMessage(
   const channelUrl = getRequiredChannelUrl(env);
   const summary = buildChannelRequiredHtml(language, env);
   const body = noticeHtml ? `${noticeHtml}\n\n${summary}` : summary;
+  await clearReplyKeyboard(token, chatId);
   await sendTelegramMessage(
     token,
     chatId,
     body,
-    channelGateReplyKeyboard(language, channelUrl),
-    "HTML",
     undefined,
+    "HTML",
+    channelGateInlineMarkup(language, channelUrl),
     { disableLinkPreview: true }
   );
 }
@@ -1292,7 +1310,7 @@ function isChannelGateButton(text: string): boolean {
 
 function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true): ReplyMarkup {
   if (!hasFullAccess) {
-    return channelGateReplyKeyboard(language, getRequiredChannelUrl({} as Env));
+    return { remove_keyboard: true };
   }
   const keyboard: (string | ReplyKeyboardButton)[][] = [
     [t(language, "btnWallets"), t(language, "btnContacts")],
