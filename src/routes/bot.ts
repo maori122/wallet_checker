@@ -173,12 +173,11 @@ const I18N = {
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
     channelRequiredHtml:
-      "<b>Трекер бесплатный</b> — нужна подписка на канал.\n\n" +
-      "Нажмите кнопку <b>«📢 Перейти в канал»</b> под этим сообщением.\n\n" +
-      "После подписки нажмите <b>«✅ Проверить подписку»</b>.",
-    channelCheckAlert: "Подпишитесь на канал, затем нажмите «Проверить подписку».",
+      "<b>Трекер бесплатный.</b> Чтобы всё заработало, подпишитесь на наш канал — кнопки ниже.",
+    channelCheckAlert: "Сначала «Подписаться», затем «Проверить подписку».",
     channelCheckOk: "✅ Подписка на канал подтверждена. Добро пожаловать!",
-    channelCheckFail: "Подписка на канал не найдена. Перейдите по ссылке выше и попробуйте снова.",
+    channelCheckFail: "Подписка не найдена. Нажмите «Подписаться», вступите в канал и проверьте снова.",
+    btnSubscribeChannel: "Подписаться",
     btnOpenChannel: "📢 Перейти в канал",
     btnCheckChannel: "✅ Проверить подписку",
     reputationTitle: "Репутация",
@@ -359,12 +358,11 @@ const I18N = {
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
     channelRequiredHtml:
-      "<b>The tracker is free</b> — subscribe to our channel first.\n\n" +
-      "Tap <b>\"📢 Open channel\"</b> under this message.\n\n" +
-      "After subscribing, tap <b>\"✅ Check subscription\"</b>.",
-    channelCheckAlert: "Subscribe to the channel, then tap \"Check subscription\".",
+      "<b>The tracker is free.</b> Subscribe to our channel to unlock it — use the buttons below.",
+    channelCheckAlert: "Tap Subscribe first, then Check subscription.",
     channelCheckOk: "✅ Channel subscription confirmed. Welcome!",
-    channelCheckFail: "Channel subscription not found. Open the link above and try again.",
+    channelCheckFail: "Not subscribed yet. Tap Subscribe, join the channel, then check again.",
+    btnSubscribeChannel: "Subscribe",
     btnOpenChannel: "📢 Open channel",
     btnCheckChannel: "✅ Check subscription",
     reputationTitle: "Reputation",
@@ -1223,41 +1221,14 @@ function serializeReplyMarkup(markup: ReplyMarkup): {
   };
 }
 
-function channelGateInlineMarkup(language: Language, channelUrl: string): InlineReplyMarkup {
+function channelGateReplyKeyboard(language: Language, channelUrl: string): ReplyMarkup {
   return {
-    inline_keyboard: [
-      [{ text: t(language, "btnOpenChannel"), url: channelUrl }],
-      [{ text: t(language, "btnCheckChannel"), callback_data: "channel:check" }]
-    ]
-  };
-}
-
-function channelGateReplyKeyboard(language: Language): ReplyMarkup {
-  return {
-    keyboard: [[{ text: t(language, "btnCheckChannel") }]],
+    keyboard: [
+      [{ text: t(language, "btnSubscribeChannel"), url: channelUrl }],
+      [{ text: t(language, "btnCheckChannel") }]
+    ],
     resize_keyboard: true
   };
-}
-
-async function editMessageInlineMarkup(
-  token: string,
-  chatId: number,
-  messageId: number,
-  inlineKeyboard: InlineReplyMarkup
-): Promise<void> {
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        message_id: messageId,
-        reply_markup: inlineKeyboard
-      })
-    });
-  } catch {
-    // ignore
-  }
 }
 
 async function sendChannelGateMessage(
@@ -1270,24 +1241,15 @@ async function sendChannelGateMessage(
   const channelUrl = getRequiredChannelUrl(env);
   const summary = buildChannelRequiredHtml(language, env);
   const body = noticeHtml ? `${noticeHtml}\n\n${summary}` : summary;
-  const response = await sendTelegramMessage(
+  await sendTelegramMessage(
     token,
     chatId,
     body,
-    channelGateReplyKeyboard(language),
+    channelGateReplyKeyboard(language, channelUrl),
     "HTML",
     undefined,
-    { linkPreviewUrl: channelUrl }
+    { disableLinkPreview: true }
   );
-  try {
-    const data = (await response.clone().json()) as { result?: { message_id?: number } };
-    const messageId = data.result?.message_id;
-    if (typeof messageId === "number") {
-      await editMessageInlineMarkup(token, chatId, messageId, channelGateInlineMarkup(language, channelUrl));
-    }
-  } catch {
-    // Text + preview still sent if inline edit fails.
-  }
 }
 
 async function deliverChannelCheckResult(
@@ -1330,7 +1292,7 @@ function isChannelGateButton(text: string): boolean {
 
 function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true): ReplyMarkup {
   if (!hasFullAccess) {
-    return channelGateReplyKeyboard(language);
+    return channelGateReplyKeyboard(language, getRequiredChannelUrl({} as Env));
   }
   const keyboard: (string | ReplyKeyboardButton)[][] = [
     [t(language, "btnWallets"), t(language, "btnContacts")],
@@ -1485,7 +1447,7 @@ async function sendTelegramMessage(
   options?: {
     preserveExistingMessages?: boolean;
     omitTrackedSurfaceUpdate?: boolean;
-    linkPreviewUrl?: string;
+    disableLinkPreview?: boolean;
   }
 ): Promise<Response> {
   if ((replyMarkup || inlineKeyboard) && !options?.preserveExistingMessages) {
@@ -1510,12 +1472,8 @@ async function sendTelegramMessage(
   if (parseMode) {
     payload.parse_mode = parseMode;
   }
-  if (options?.linkPreviewUrl) {
-    payload.link_preview_options = {
-      url: options.linkPreviewUrl,
-      prefer_large_media: true,
-      show_above_text: true
-    };
+  if (options?.disableLinkPreview) {
+    payload.link_preview_options = { is_disabled: true };
   }
 
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -2567,7 +2525,10 @@ bot.post("/telegram", async (c) => {
     return c.json({ ok: true });
   }
 
-  if (!hasTrackerAccess && isBtn(text, "btnOpenChannel")) {
+  if (
+    !hasTrackerAccess &&
+    (isBtn(text, "btnSubscribeChannel") || isBtn(text, "btnOpenChannel"))
+  ) {
     await sendChannelGateMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, language, c.env);
     return c.json({ ok: true });
   }
