@@ -9,6 +9,10 @@ export type Env = {
   BSCSCAN_API_KEY?: string;
   TRONGRID_API_KEY?: string;
   ADMIN_USER_IDS?: string;
+  /** @channel или -100… — канал для обязательной подписки */
+  REQUIRED_CHANNEL_ID?: string;
+  /** Ссылка-приглашение для текста бота / Mini App */
+  REQUIRED_CHANNEL_URL?: string;
   DEV_AUTH_BYPASS?: string;
   SUBSCRIPTION_EVM_PAY_ADDRESS?: string;
   SUBSCRIPTION_TRC20_PAY_ADDRESS?: string;

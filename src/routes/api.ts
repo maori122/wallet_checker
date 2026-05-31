@@ -47,6 +47,7 @@ import {
   updateContactSchema,
   updateSettingsSchema
 } from "../lib/validation";
+import { getRequiredChannelUrl, isChannelMember } from "../lib/telegram-channel";
 
 type Variables = {
   userId: string;
@@ -70,23 +71,11 @@ function isAdminUser(env: Env, userId: string): boolean {
   return ids.includes(userId);
 }
 
-function hasActiveSubscription(subscription: { status: "inactive" | "active"; expiresAt: string | null }): boolean {
-  if (subscription.status !== "active") {
-    return false;
-  }
-  if (!subscription.expiresAt) {
-    return false;
-  }
-  const expiresMs = Date.parse(subscription.expiresAt);
-  return Number.isFinite(expiresMs) && expiresMs > Date.now();
-}
-
 async function hasFullAccess(env: Env, userId: string): Promise<boolean> {
   if (isAdminUser(env, userId)) {
     return true;
   }
-  const subscription = await getSubscriptionInfo(env, userId);
-  return hasActiveSubscription(subscription);
+  return isChannelMember(env, userId);
 }
 
 function requireAdmin(env: Env, userId: string): string {
@@ -122,7 +111,7 @@ function mapApiError(error: unknown): string {
     return "Admin access required.";
   }
   if (message === "FORBIDDEN_SUBSCRIPTION_REQUIRED") {
-    return "Subscription required. Pay subscription first.";
+    return "Subscribe to the channel first, then try again.";
   }
   if (message === "INVALID_PRICING_AMOUNT") {
     return "Invalid USDT amount (use positive number, for example 15 or 9.99).";
@@ -134,6 +123,7 @@ function isSubscriptionPublicRoute(path: string): boolean {
   const normalized = path.startsWith("/api/") ? path.slice(4) : path;
   return (
     normalized === "/me" ||
+    normalized === "/channel/status" ||
     normalized === "/subscription" ||
     normalized === "/subscription/invoice" ||
     normalized === "/subscription/check" ||
@@ -162,13 +152,25 @@ api.get("/me", async (c) => {
   const userId = getUserId(c);
   const subscription = await getSubscriptionInfo(c.env, userId);
   const isAdmin = isAdminUser(c.env, userId);
+  const channelMember = isAdmin || (await isChannelMember(c.env, userId));
   return c.json({
     me: {
       userId,
       isAdmin,
-      hasFullAccess: isAdmin || hasActiveSubscription(subscription)
+      hasFullAccess: channelMember,
+      channelUrl: getRequiredChannelUrl(c.env)
     },
     subscription
+  });
+});
+
+api.get("/channel/status", async (c) => {
+  const userId = getUserId(c);
+  const isAdmin = isAdminUser(c.env, userId);
+  const member = isAdmin || (await isChannelMember(c.env, userId));
+  return c.json({
+    member,
+    channelUrl: getRequiredChannelUrl(c.env)
   });
 });
 

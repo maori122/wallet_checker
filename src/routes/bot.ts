@@ -49,6 +49,7 @@ import {
   processSubscriptionPayments
 } from "../lib/subscription-payments";
 import { detectAddressNetworks } from "../lib/validation";
+import { getRequiredChannelUrl, isChannelMember } from "../lib/telegram-channel";
 
 type Variables = {
   userId: string;
@@ -162,14 +163,20 @@ const I18N = {
     paymentInstruction:
       "Оплатите ТОЧНУЮ сумму и нажмите «✅ Проверить оплату». Автопроверка также идет каждые 2 минуты.",
     paymentCopyHint: "Нажмите на адрес, чтобы быстро скопировать.",
-    paymentCheckNoRequest: "Активного счета нет. Нажмите «💳 Оплатить подписку».",
+    paymentCheckNoRequest: "Активного счёта нет. Нажмите «➕ +10 слотов», чтобы создать счёт.",
     paymentCheckPending: "Платеж пока не найден. Проверьте сумму/сеть и попробуйте еще раз через минуту.",
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
-    accessRequiredHtml:
-      "<b>Все функции бота доступны только по подписке</b>\n\n" +
-      "Для оформления подписки перейдите в личный кабинет и нажмите <b>«💳 Оплатить подписку»</b>\n\n" +
-      "<b>Промокод</b> можно активировать в личном кабинете",
+    channelRequiredHtml:
+      "<b>Трекер бесплатный</b> — нужна подписка на канал.\n\n" +
+      "👉 <a href=\"{url}\">Перейти в канал</a>\n\n" +
+      "После подписки нажмите <b>«✅ Проверить подписку»</b>.\n\n" +
+      "Пакет <b>+10 слотов</b> — в личном кабинете (USDT).",
+    channelCheckAlert: "Подпишитесь на канал, затем нажмите «Проверить подписку».",
+    channelCheckOk: "✅ Подписка на канал подтверждена. Добро пожаловать!",
+    channelCheckFail: "Подписка на канал не найдена. Перейдите по ссылке выше и попробуйте снова.",
+    btnOpenChannel: "📢 Перейти в канал",
+    btnCheckChannel: "✅ Проверить подписку",
     reputationTitle: "Репутация",
     reputationValue: "Ваш текущий рейтинг: {score}",
     adminPanelTitle: "Админ панель",
@@ -343,14 +350,20 @@ const I18N = {
     paymentInstruction:
       "Pay the EXACT amount and tap \"✅ Check payment\". Automatic check runs every 2 minutes.",
     paymentCopyHint: "Tap the address to copy it quickly.",
-    paymentCheckNoRequest: "No active invoice. Tap \"💳 Pay subscription\" first.",
+    paymentCheckNoRequest: "No active invoice. Tap \"➕ +10 slots\" to create one.",
     paymentCheckPending: "Payment not found yet. Verify amount/network and try again in a minute.",
     paymentNetworkBsc: "🟡 USDT BEP20",
     paymentNetworkTrc20: "🔴 USDT TRC20",
-    accessRequiredHtml:
-      "<b>All bot features are available only with a subscription</b>\n\n" +
-      "To subscribe, open your account and tap <b>\"💳 Pay subscription\"</b>\n\n" +
-      "You can activate a <b>promo code</b> in your account",
+    channelRequiredHtml:
+      "<b>The tracker is free</b> — subscribe to our channel first.\n\n" +
+      "👉 <a href=\"{url}\">Open channel</a>\n\n" +
+      "After subscribing, tap <b>\"✅ Check subscription\"</b>.\n\n" +
+      "<b>+10 slots</b> pack is paid in Account (USDT).",
+    channelCheckAlert: "Subscribe to the channel, then tap \"Check subscription\".",
+    channelCheckOk: "✅ Channel subscription confirmed. Welcome!",
+    channelCheckFail: "Channel subscription not found. Open the link above and try again.",
+    btnOpenChannel: "📢 Open channel",
+    btnCheckChannel: "✅ Check subscription",
     reputationTitle: "Reputation",
     reputationValue: "Your current score: {score}",
     adminPanelTitle: "Admin panel",
@@ -497,7 +510,6 @@ function isSectionActionButton(input: string): boolean {
 
 function isCabinetActionButton(input: string): boolean {
   return (
-    isBtn(input, "btnPaySubscription") ||
     isBtn(input, "btnPaySlotPack") ||
     isBtn(input, "btnCheckPayment") ||
     isBtn(input, "btnActivatePromo")
@@ -1192,12 +1204,25 @@ function hasActiveSubscription(subscription: { status: "inactive" | "active"; ex
   return Number.isFinite(expiresMs) && expiresMs > Date.now();
 }
 
+function buildChannelRequiredHtml(language: Language, env: Env): string {
+  const url = escapeHtml(getRequiredChannelUrl(env));
+  return t(language, "channelRequiredHtml").replace("{url}", url);
+}
+
+function channelGateKeyboard(language: Language): ReplyMarkup {
+  return {
+    keyboard: [[t(language, "btnOpenChannel")], [t(language, "btnCheckChannel")]],
+    resize_keyboard: true
+  };
+}
+
+function isChannelGateButton(text: string): boolean {
+  return isBtn(text, "btnCheckChannel") || isBtn(text, "btnOpenChannel");
+}
+
 function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true): ReplyMarkup {
   if (!hasFullAccess) {
-    return {
-      keyboard: [[t(language, "btnCabinet")]],
-      resize_keyboard: true
-    };
+    return channelGateKeyboard(language);
   }
   const keyboard: string[][] = [
     [t(language, "btnWallets"), t(language, "btnContacts")],
@@ -1215,8 +1240,7 @@ function mainKeyboard(language: Language, isAdmin = false, hasFullAccess = true)
 function cabinetKeyboard(language: Language): ReplyMarkup {
   return {
     keyboard: [
-      [t(language, "btnPaySubscription"), t(language, "btnCheckPayment")],
-      [t(language, "btnPaySlotPack")],
+      [t(language, "btnPaySlotPack"), t(language, "btnCheckPayment")],
       [t(language, "btnActivatePromo")],
       [t(language, "btnMainMenu")]
     ],
@@ -2023,15 +2047,14 @@ bot.post("/telegram", async (c) => {
       const settings = await getSettings(c.env, userId);
       const language = settings.language;
       const isAdmin = isAdminUser(c.env, userId);
-      const subscription = await getSubscriptionInfo(c.env, userId);
-      const hasBotAccess = isAdmin || hasActiveSubscription(subscription);
+      const hasTrackerAccess = isAdmin || (await isChannelMember(c.env, userId));
       await answerCallbackQuery(token, cq.id);
       await sendTelegramMessage(
         token,
         chatId,
-        hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHtml"),
-        mainKeyboard(language, isAdmin, hasBotAccess),
-        hasBotAccess ? undefined : "HTML"
+        hasTrackerAccess ? `🏠 ${t(language, "mainMenu")}` : buildChannelRequiredHtml(language, c.env),
+        mainKeyboard(language, isAdmin, hasTrackerAccess),
+        "HTML"
       );
       return c.json({ ok: true });
     }
@@ -2048,6 +2071,13 @@ bot.post("/telegram", async (c) => {
       const isAdmin = isAdminUser(c.env, userId);
       const settings = await getSettings(c.env, userId);
       const language = settings.language;
+      if (!isAdmin && !(await isChannelMember(c.env, userId))) {
+        await answerCallbackQuery(token, cq.id, {
+          text: t(language, "channelCheckAlert"),
+          showAlert: true
+        });
+        return c.json({ ok: true });
+      }
       const session = await getBotSession(c.env, userId);
       if ((k === "ar" || k === "al" || k === "as") && !isAdmin) {
         await answerCallbackQuery(token, cq.id, { text: t(language, "adminOnly"), showAlert: true });
@@ -2126,7 +2156,7 @@ bot.post("/telegram", async (c) => {
   const language = settings.language;
   let session = await getBotSession(c.env, userId);
   const subscription = await getSubscriptionInfo(c.env, userId);
-  const hasBotAccess = isAdmin || hasActiveSubscription(subscription);
+  const hasTrackerAccess = isAdmin || (await isChannelMember(c.env, userId));
 
   // Remove the user's tap/command from the chat so history stays a single bot "card" + keyboard.
   await deleteTelegramMessageWithRetry(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, message.message_id);
@@ -2137,7 +2167,7 @@ bot.post("/telegram", async (c) => {
     const promoId = startPromoMatch[1].toLowerCase();
     try {
       const subscription = await activatePromoById(c.env, userId, promoId);
-      const unlocked = isAdmin || hasActiveSubscription(subscription);
+      const unlocked = isAdmin || (await isChannelMember(c.env, userId));
       const summaryHtml = buildCabinetSummaryHtml(language, subscription);
       await sendTelegramMessage(
         c.env.TELEGRAM_BOT_TOKEN,
@@ -2149,7 +2179,7 @@ bot.post("/telegram", async (c) => {
     } catch (error) {
       const code = (error as Error).message;
       const subscriptionAfter = await getSubscriptionInfo(c.env, userId);
-      const unlocked = isAdmin || hasActiveSubscription(subscriptionAfter);
+      const unlocked = isAdmin || (await isChannelMember(c.env, userId));
       const errorText =
         code === "PROMO_CODE_ALREADY_USED"
           ? t(language, "promoAlreadyUsed")
@@ -2169,7 +2199,7 @@ bot.post("/telegram", async (c) => {
   if (!text || text === "/start" || text === "/menu") {
     await clearBotSession(c.env, userId);
     let welcomeText: string;
-    if (hasBotAccess) {
+    if (hasTrackerAccess) {
       const [walletsG, contactsG, summaryG] = await Promise.all([
         listWallets(c.env, userId),
         listContacts(c.env, userId),
@@ -2183,13 +2213,13 @@ bot.post("/telegram", async (c) => {
         summaryG.contactLimit
       );
     } else {
-      welcomeText = t(language, "accessRequiredHtml");
+      welcomeText = buildChannelRequiredHtml(language, c.env);
     }
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       welcomeText,
-      mainKeyboard(language, isAdmin, hasBotAccess),
+      mainKeyboard(language, isAdmin, hasTrackerAccess),
       "HTML"
     );
     return c.json({ ok: true });
@@ -2367,9 +2397,9 @@ bot.post("/telegram", async (c) => {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      hasBotAccess ? `🏠 ${t(language, "mainMenu")}` : t(language, "accessRequiredHtml"),
-      mainKeyboard(language, isAdmin, hasBotAccess),
-      hasBotAccess ? undefined : "HTML"
+      hasTrackerAccess ? `🏠 ${t(language, "mainMenu")}` : buildChannelRequiredHtml(language, c.env),
+      mainKeyboard(language, isAdmin, hasTrackerAccess),
+      "HTML"
     );
     return c.json({ ok: true });
   }
@@ -2389,25 +2419,56 @@ bot.post("/telegram", async (c) => {
     await setBotSession(c.env, userId, session);
   }
 
-  const allowsPaymentFlow =
-    isBtn(text, "btnCabinet") ||
-    isBtn(text, "btnPaySubscription") ||
-    isBtn(text, "btnPaySlotPack") ||
-    isBtn(text, "btnCheckPayment") ||
-    isBtn(text, "btnActivatePromo") ||
-    isBtn(text, "paymentNetworkBsc") ||
-    isBtn(text, "paymentNetworkTrc20") ||
-    session?.flow === "cabinet:promo:code" ||
-    session?.flow === "cabinet:pay:network" ||
-    session?.flow === "cabinet:pay-slots:network";
-
-  if (!hasBotAccess && !allowsPaymentFlow) {
-    await setBotSession(c.env, userId, { flow: "section:cabinet" });
+  if (isBtn(text, "btnOpenChannel")) {
     await sendTelegramMessage(
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
-      t(language, "accessRequiredHtml"),
-      mainKeyboard(language, isAdmin, false),
+      buildChannelRequiredHtml(language, c.env),
+      channelGateKeyboard(language),
+      "HTML"
+    );
+    return c.json({ ok: true });
+  }
+
+  if (isBtn(text, "btnCheckChannel")) {
+    if (hasTrackerAccess) {
+      const [walletsG, contactsG, summaryG] = await Promise.all([
+        listWallets(c.env, userId),
+        listContacts(c.env, userId),
+        getUsageSummary(c.env, userId)
+      ]);
+      const welcomeText = buildWelcomeScreenHtml(
+        language,
+        walletsG.length,
+        contactsG.length,
+        summaryG.walletLimit,
+        summaryG.contactLimit
+      );
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `${t(language, "channelCheckOk")}\n\n${welcomeText}`,
+        mainKeyboard(language, isAdmin, true),
+        "HTML"
+      );
+    } else {
+      await sendTelegramMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        message.chat.id,
+        `${t(language, "channelCheckFail")}\n\n${buildChannelRequiredHtml(language, c.env)}`,
+        channelGateKeyboard(language),
+        "HTML"
+      );
+    }
+    return c.json({ ok: true });
+  }
+
+  if (!hasTrackerAccess && !isChannelGateButton(text)) {
+    await sendTelegramMessage(
+      c.env.TELEGRAM_BOT_TOKEN,
+      message.chat.id,
+      buildChannelRequiredHtml(language, c.env),
+      channelGateKeyboard(language),
       "HTML"
     );
     return c.json({ ok: true });
@@ -2518,7 +2579,7 @@ bot.post("/telegram", async (c) => {
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
         t(language, "unknown"),
-        mainKeyboard(language, isAdmin, hasBotAccess)
+        mainKeyboard(language, isAdmin, hasTrackerAccess)
       );
       return c.json({ ok: true });
     }
@@ -2539,7 +2600,7 @@ bot.post("/telegram", async (c) => {
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
         t(language, "unknown"),
-        mainKeyboard(language, isAdmin, hasBotAccess)
+        mainKeyboard(language, isAdmin, hasTrackerAccess)
       );
       return c.json({ ok: true });
     }
@@ -2670,7 +2731,7 @@ bot.post("/telegram", async (c) => {
     const transferId = session.payload?.transferId as string | undefined;
     if (!transferId) {
       await clearBotSession(c.env, userId);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "unknown"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     const vote = isBtn(text, "btnLike") ? 1 : isBtn(text, "btnDislike") ? -1 : null;
@@ -2702,7 +2763,7 @@ bot.post("/telegram", async (c) => {
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
         t(language, "unknown"),
-        mainKeyboard(language, isAdmin, hasBotAccess)
+        mainKeyboard(language, isAdmin, hasTrackerAccess)
       );
       return c.json({ ok: true });
     }
@@ -2768,7 +2829,7 @@ bot.post("/telegram", async (c) => {
         c.env.TELEGRAM_BOT_TOKEN,
         message.chat.id,
         t(language, "unknown"),
-        mainKeyboard(language, isAdmin, hasBotAccess)
+        mainKeyboard(language, isAdmin, hasTrackerAccess)
       );
       return c.json({ ok: true });
     }
@@ -2923,7 +2984,7 @@ bot.post("/telegram", async (c) => {
   if (session?.flow === "admin:promo:create" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
 
@@ -2980,7 +3041,7 @@ bot.post("/telegram", async (c) => {
   if (session?.flow === "admin:reputation:reset:user" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     if (!/^\d+$/.test(text)) {
@@ -3001,7 +3062,7 @@ bot.post("/telegram", async (c) => {
   if (session?.flow === "admin:stop:manage" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     const trimmed = text.trim();
@@ -3075,7 +3136,7 @@ bot.post("/telegram", async (c) => {
   if (session?.flow === "admin:stop:pick-network" && !isAdminActionButton(text)) {
     if (!isAdmin) {
       await clearBotSession(c.env, userId);
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     const action = (session.payload?.action as "add" | "del" | undefined) ?? "add";
@@ -3193,14 +3254,14 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       `${t(language, "reputationTitle")}\n${t(language, "reputationValue").replace("{score}", String(score))}`,
-      mainKeyboard(language, isAdmin, hasBotAccess)
+      mainKeyboard(language, isAdmin, hasTrackerAccess)
     );
     return c.json({ ok: true });
   }
 
   if (isBtn(text, "btnAdminPanel")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "section:admin" });
@@ -3217,17 +3278,6 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnActivatePromo")) {
     await setBotSession(c.env, userId, { flow: "cabinet:promo:code" });
     await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "askPromoCode"), cabinetKeyboard(language));
-    return c.json({ ok: true });
-  }
-
-  if (isBtn(text, "btnPaySubscription")) {
-    await setBotSession(c.env, userId, { flow: "cabinet:pay:network" });
-    await sendTelegramMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      message.chat.id,
-      t(language, "paymentChooseNetwork"),
-      paymentNetworkKeyboard(language)
-    );
     return c.json({ ok: true });
   }
 
@@ -3301,7 +3351,7 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       t(language, "unknown"),
-      mainKeyboard(language, isAdmin, hasBotAccess)
+      mainKeyboard(language, isAdmin, hasTrackerAccess)
     );
     return c.json({ ok: true });
   }
@@ -3309,7 +3359,7 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnBalance")) {
     const section = currentSection(session);
     if (section !== "wallets") {
-      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin, hasBotAccess);
+      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin, hasTrackerAccess);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
@@ -3340,7 +3390,7 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnHistory")) {
     const section = currentSection(session);
     if (section !== "wallets") {
-      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin, hasBotAccess);
+      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin, hasTrackerAccess);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
@@ -3361,7 +3411,7 @@ bot.post("/telegram", async (c) => {
   if (isBtn(text, "btnRateTransfer")) {
     const section = currentSection(session);
     if (section !== "wallets") {
-      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin, hasBotAccess);
+      const keyboard = section === "contacts" ? sectionKeyboard(language, "contacts") : mainKeyboard(language, isAdmin, hasTrackerAccess);
       await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "walletActionsOnly"), keyboard);
       return c.json({ ok: true });
     }
@@ -3406,7 +3456,7 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       t(language, "unknown"),
-      mainKeyboard(language, isAdmin, hasBotAccess)
+      mainKeyboard(language, isAdmin, hasTrackerAccess)
     );
     return c.json({ ok: true });
   }
@@ -3473,7 +3523,7 @@ bot.post("/telegram", async (c) => {
       c.env.TELEGRAM_BOT_TOKEN,
       message.chat.id,
       t(language, "unknown"),
-      mainKeyboard(language, isAdmin, hasBotAccess)
+      mainKeyboard(language, isAdmin, hasTrackerAccess)
     );
     return c.json({ ok: true });
   }
@@ -3554,7 +3604,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminStats")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     const stats = await getAdminDashboardStats(c.env);
@@ -3570,7 +3620,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminReputation")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await sendPagedList({
@@ -3589,7 +3639,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminResetReputation")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "admin:reputation:reset:user" });
@@ -3599,7 +3649,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminStopWallets")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "admin:stop:manage" });
@@ -3609,7 +3659,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminLinks")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await sendPagedList({
@@ -3628,7 +3678,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminPricing")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await showPricingMenuScreen(c.env, c.env.TELEGRAM_BOT_TOKEN, message.chat.id, userId, language);
@@ -3637,7 +3687,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminCreatePromo")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     await setBotSession(c.env, userId, { flow: "admin:promo:create" });
@@ -3653,7 +3703,7 @@ bot.post("/telegram", async (c) => {
 
   if (isBtn(text, "btnAdminPromoList")) {
     if (!isAdmin) {
-      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasBotAccess));
+      await sendTelegramMessage(c.env.TELEGRAM_BOT_TOKEN, message.chat.id, t(language, "adminOnly"), mainKeyboard(language, isAdmin, hasTrackerAccess));
       return c.json({ ok: true });
     }
     const itemsPmList = await listPromoCodeEntries(c.env, 40);
@@ -3676,7 +3726,7 @@ bot.post("/telegram", async (c) => {
     c.env.TELEGRAM_BOT_TOKEN,
     message.chat.id,
     t(language, "unknown"),
-    mainKeyboard(language, isAdmin, hasBotAccess)
+    mainKeyboard(language, isAdmin, hasTrackerAccess)
   );
   return c.json({ ok: true });
 });

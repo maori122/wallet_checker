@@ -130,11 +130,20 @@ function pageHtml(): string {
         <div class="card"><h3 id="cabinet-subscription-title">Subscription</h3><div id="cabinet-subscription"></div></div>
         <div class="card">
           <h3 id="payment-title">Payment</h3>
-          <div class="grid">
-            <div class="row"><label id="pay-network-label">Network</label><select id="pay-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
+          <div id="channel-gate" class="card hidden" style="margin-bottom:0.75rem">
+            <p id="channel-gate-text" class="muted"></p>
             <div class="btns">
-              <button class="btn primary" id="pay-create">Create invoice</button>
-              <button class="btn ok" id="pay-check">Check payment</button>
+              <a class="btn primary" id="channel-open" href="#" target="_blank" rel="noopener">Channel</a>
+              <button class="btn ok" type="button" id="channel-recheck">Check subscription</button>
+            </div>
+          </div>
+          <div class="grid">
+            <div id="pay-sub-block" class="hidden">
+              <div class="row"><label id="pay-network-label">Network</label><select id="pay-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
+              <div class="btns">
+                <button class="btn primary" id="pay-create">Create invoice</button>
+                <button class="btn ok" id="pay-check">Check payment</button>
+              </div>
             </div>
             <h4 id="slot-pack-heading" style="margin:0.75rem 0 0">+10 slots</h4>
             <div class="row"><label id="pay-slots-network-label">Network</label><select id="pay-slots-network"><option value="bsc">USDT BEP20</option><option value="trc20">USDT TRC20</option></select></div>
@@ -346,7 +355,12 @@ function pageHtml(): string {
           chooseNetworkForAddress: "Для этого адреса подходит несколько сетей. Выберите сеть вручную.",
           selectedNetworkMismatch: "Адрес не соответствует выбранной сети.",
           openFromTelegram: "Откройте Mini App из Telegram для авторизации.",
-          accessFirst: "Сначала оплатите подписку в разделе Cabinet, затем откроется весь функционал."
+          accessFirst: "Подпишитесь на канал и нажмите «Проверить подписку» в разделе Cabinet.",
+          channelGateText: "Трекер бесплатный. Подпишитесь на канал, затем нажмите «Проверить подписку».",
+          channelOpen: "Перейти в канал",
+          channelRecheck: "Проверить подписку",
+          channelOk: "Подписка на канал подтверждена.",
+          channelFail: "Подписка не найдена. Откройте канал и попробуйте снова."
         },
         en: {
           appTitle: "VOROBEY: Track",
@@ -462,7 +476,12 @@ function pageHtml(): string {
           chooseNetworkForAddress: "This address matches multiple networks. Choose network manually.",
           selectedNetworkMismatch: "Address does not match selected network.",
           openFromTelegram: "Open from Telegram to authorize.",
-          accessFirst: "Pay subscription in Cabinet first, then full functionality will unlock."
+          accessFirst: "Subscribe to the channel and tap «Check subscription» in Cabinet.",
+          channelGateText: "The tracker is free. Subscribe to the channel, then tap «Check subscription».",
+          channelOpen: "Open channel",
+          channelRecheck: "Check subscription",
+          channelOk: "Channel subscription confirmed.",
+          channelFail: "Subscription not found. Open the channel and try again."
         }
       };
       function tr(key) {
@@ -659,21 +678,28 @@ function pageHtml(): string {
         const data = await api("/me");
         state.me = data.me;
         state.subscription = data.subscription;
-        if (data.subscription?.status === "active") {
-          const expiresMs = Date.parse(data.subscription.expiresAt || "");
-          if (Number.isFinite(expiresMs) && expiresMs > Date.now()) {
-            state.me.hasFullAccess = true;
-          }
-        }
+        state.channelUrl = data.me?.channelUrl || "";
         if (data.me?.isAdmin) {
           $("admin-tab").classList.remove("hidden");
           $("admin").classList.remove("hidden");
         }
       }
       function applyAccessRestrictions() {
+        const gate = $("channel-gate");
+        const open = $("channel-open");
+        const gateText = $("channel-gate-text");
         if (state.me?.isAdmin || state.me?.hasFullAccess) {
+          if (gate) gate.classList.add("hidden");
           return;
         }
+        if (gate) gate.classList.remove("hidden");
+        if (gateText) gateText.textContent = tr("channelGateText");
+        if (open && state.channelUrl) {
+          open.href = state.channelUrl;
+          open.textContent = tr("channelOpen");
+        }
+        const recheck = $("channel-recheck");
+        if (recheck) recheck.textContent = tr("channelRecheck");
         document.querySelectorAll(".tab").forEach((el) => {
           if (el.dataset.tab !== "cabinet") {
             el.classList.add("hidden");
@@ -1068,6 +1094,25 @@ function pageHtml(): string {
           }
           renderSummary();
           toast(tr("settingsSaved"));
+        } catch (e) { toast(e.message || "Error", true); }
+      });
+
+      $("channel-recheck")?.addEventListener("click", async () => {
+        try {
+          const data = await api("/channel/status");
+          if (data.member) {
+            state.me = state.me || {};
+            state.me.hasFullAccess = true;
+            applyAccessRestrictions();
+            document.querySelectorAll(".tab").forEach((el) => el.classList.remove("hidden"));
+            await loadSettings();
+            await Promise.all([loadSummary(), loadWallets(), loadContacts(), loadHistory(), loadSubscription()]);
+            if (state.me?.isAdmin) await loadAdmin();
+            renderSummary();
+            toast(tr("channelOk"));
+          } else {
+            toast(tr("channelFail"), true);
+          }
         } catch (e) { toast(e.message || "Error", true); }
       });
 
