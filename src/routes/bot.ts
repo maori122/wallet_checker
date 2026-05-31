@@ -948,17 +948,27 @@ async function loadPagedListContent(
       if (entries.length === 0) {
         return null;
       }
-      const lines = entries.map(
-        (item, index) =>
-          `${index + 1}. ${toUserLabel({
+      const lines = entries.map((item, index) => {
+        const who = escapeHtml(
+          toUserLabel({
             userId: item.actorUserId,
             username: item.actorUsername,
             displayName: item.actorDisplayName
-          })} · ${item.entityType} · [${formatNetwork(item.network)}] ${maskAddress(item.address)}${
-            item.label ? ` (${item.label})` : ""
-          }`
-      );
-      return { title: `${t(language, "adminLinksTitle")}:`, lines };
+          })
+        );
+        const labelSuffix = item.label?.trim()
+          ? `\n<i>${escapeHtml(item.label.trim())}</i>`
+          : "";
+        return (
+          `${index + 1}. ${who} · ${escapeHtml(item.entityType)} · [${formatNetwork(item.network)}]\n` +
+          `<blockquote><code>${escapeHtml(item.address)}</code></blockquote>${labelSuffix}`
+        );
+      });
+      return {
+        title: `🔗 <b>${escapeHtml(t(language, "adminLinksTitle"))}</b>`,
+        lines,
+        parseMode: "HTML"
+      };
     }
     case "as": {
       if (!isAdmin) {

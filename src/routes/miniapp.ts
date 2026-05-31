@@ -1011,7 +1011,27 @@ function pageHtml(): string {
         if (!(stop.items || []).length) append("admin-stop-list", '<div class="muted">' + tr("noStopWallets") + "</div>");
         clearNode("admin-link-list");
         (links.items || []).forEach((it) =>
-          append("admin-link-list", "<div>" + it.entityType + " · [" + String(it.network).toUpperCase() + "] " + shortAddr(it.address) + "</div><div class='muted'>" + tr("userLabel") + " " + it.actorUserId + " · " + fmtDate(it.createdAt) + "</div>")
+          append(
+            "admin-link-list",
+            "<div>" +
+              esc(it.entityType) +
+              " · [" +
+              String(it.network).toUpperCase() +
+              "]</div><div class='address-line'><span class='mono addr-pill'>" +
+              esc(it.address) +
+              "</span><button type='button' class='btn ghost copy-btn' data-copy='" +
+              esc(it.address) +
+              "'>" +
+              tr("copy") +
+              "</button></div><div class='muted'>" +
+              tr("userLabel") +
+              " " +
+              esc(it.actorUserId) +
+              " · " +
+              fmtDate(it.createdAt) +
+              (it.label ? " · " + esc(it.label) : "") +
+              "</div>"
+          )
         );
         if (!(links.items || []).length) append("admin-link-list", '<div class="muted">' + tr("noLinkLogs") + "</div>");
         clearNode("admin-reputation-list");
